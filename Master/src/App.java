@@ -1,0 +1,272 @@
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.LineNumberReader;
+import java.util.Scanner;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
+public class App {
+
+    private static String username = "hqueinnec";
+    private static String distantPath = "/tmp/hugo";
+    private static String distantComputersList = "../Resources/machines.txt";
+    private static String localSplitsPath = "../Resources/splits";
+    private static String workerMapTaskName = "Worker.jar";
+    private static int numberOfDistantComputers;
+    private static CountDownLatch splitDeploymentCountdown;
+    private static CountDownLatch mapCountdown;
+    private static CountDownLatch scpComputersCountdown;
+
+
+
+    private static int secondsTimeout = 10;
+
+    public static void main(String[] args) throws Exception {
+
+        numberOfDistantComputers = countLines(distantComputersList);
+        splitDeploymentCountdown = new CountDownLatch(numberOfDistantComputers);
+        mapCountdown = new CountDownLatch(numberOfDistantComputers);
+        scpComputersCountdown = new CountDownLatch(numberOfDistantComputers);
+
+        FileReader fr = new FileReader(distantComputersList) ;
+        BufferedReader bu = new BufferedReader(fr) ;
+        Scanner sc = new Scanner(bu) ;
+        int computerIndex = 0;
+
+        while(sc.hasNextLine()){
+            String distantComputersListLine = sc.nextLine();
+            ProcessBuilder pb = new ProcessBuilder("ssh", username+"@"+distantComputersListLine, "hostname");
+            Process p = pb.start();
+
+            boolean timeoutStatus = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
+    
+            if (timeoutStatus){
+                InputStream is = p.getInputStream();
+                BufferedReader br = new BufferedReader(new InputStreamReader(is));
+                String line;
+
+                boolean e = false; //error?
+    
+                while ((line = br.readLine()) != null){
+                    System.out.println("  DONE: Connection   ("+ line +")");
+                }
+
+                InputStream es = p.getErrorStream();
+                BufferedReader ber = new BufferedReader(new InputStreamReader(es));
+                String eLine;
+                
+                while ((eLine = ber.readLine()) != null){
+                    System.out.println("--ERROR: Connection - "+ eLine);
+                    e = true;
+                }
+
+                br.close();
+                is.close();
+                ber.close();
+                es.close();
+
+                if (!e) {deploySplit(distantComputersListLine, computerIndex);}                
+
+            } else {
+                System.out.println("  TMO : Connection   ("+distantComputersListLine+")");
+                p.destroy();
+            }
+            computerIndex++;
+        }
+        sc.close();
+        bu.close();
+        fr.close();
+
+
+        //waiting for all threads to send splits to distant computers
+        boolean globalSplitTimeoutStatus = splitDeploymentCountdown.await(3*secondsTimeout, TimeUnit.SECONDS);
+
+        if (globalSplitTimeoutStatus){
+            System.out.println("DONE: Split Deploy   (global)");
+
+            FileReader fr2 = new FileReader(distantComputersList) ;
+            BufferedReader bu2 = new BufferedReader(fr2) ;
+            Scanner sc2 = new Scanner(bu2) ;
+            int computerIndex2 = 0;
+
+            while(sc2.hasNextLine()){
+                String distantComputersListLine = sc2.nextLine();
+                computeMap(distantComputersListLine, computerIndex2);         
+                computerIndex2++;
+            }
+            sc2.close();
+            bu2.close();
+            fr2.close();
+
+        } else {
+            System.out.println("TMO : Split Deploy   (global)");
+            return;
+        }
+
+
+        //waiting for all distant computers to finish the map phase
+        boolean globalMapTimeoutStatus = mapCountdown.await(3*secondsTimeout, TimeUnit.SECONDS);
+
+        if (globalMapTimeoutStatus){
+            System.out.println("DONE: Map Compute    (global)");
+
+            FileReader fr3 = new FileReader(distantComputersList) ;
+            BufferedReader bu3 = new BufferedReader(fr3) ;
+            Scanner sc3 = new Scanner(bu3) ;
+
+            while(sc3.hasNextLine()){
+                String distantComputersListLine = sc3.nextLine();
+                deployDistantComputersList(distantComputersListLine);         
+            }
+            sc3.close();
+            bu3.close();
+            fr3.close();
+
+        } else {
+            System.out.println("TMO : Map Compute    (global)");
+            return;
+        }
+
+        //waiting for all distant computers to receive the list of distant computers
+        boolean globalScpTimeoutStatus = scpComputersCountdown.await(3*secondsTimeout, TimeUnit.SECONDS);
+
+        if (globalScpTimeoutStatus){
+            System.out.println("DONE: List Deploy    (global)");
+
+        } else {
+            System.out.println("TMO : List Deploy    (global)");
+            return;
+        }
+
+    }
+    
+
+    private static void deploySplit(String hostname, int splitNumber) throws Exception {
+
+        new Thread() {
+            public void run() {
+
+                ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "mkdir "+distantPath+"/splits");
+                Process p1;
+
+                try {
+                    p1 = pb1.start();
+
+                    boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+                    if (timeoutStatus1){
+                        ProcessBuilder pb2 = new ProcessBuilder("scp", localSplitsPath+"/S"+splitNumber+".txt" ,  username+"@"+hostname + ":"+distantPath+"/splits");
+                        Process p2 = pb2.start();
+                
+                        boolean timeoutStatus2 = p2.waitFor(secondsTimeout, TimeUnit.SECONDS);
+            
+                        if (timeoutStatus2){
+                            System.out.println("  DONE: Split Deploy ("+hostname+")");
+                            splitDeploymentCountdown.countDown();
+            
+                        } else {
+                            System.out.println("  TMO : Split Deploy: ("+hostname+")");
+                            p2.destroy();
+                        }
+            
+                    } else {
+                        System.out.println("  TMO : Mkdir        ("+hostname+")");
+                        p1.destroy();
+                    }
+                
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }.start();
+
+    }
+
+
+    private static void computeMap(String hostname, int splitNumber) throws Exception{
+
+        new Thread() {
+            public void run() {
+
+                ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "cd "+distantPath+"; java -jar "+workerMapTaskName+" 0 S"+splitNumber+".txt");
+                Process p1;
+
+                try {
+                    p1 = pb1.start();
+
+                    boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+                    if (timeoutStatus1){
+                        System.out.println("  DONE: Map Compute  ("+hostname+")");
+                        mapCountdown.countDown();
+
+                    } else {
+                        System.out.println("  TMO : Map Compute  ("+hostname+")");
+                        p1.destroy();
+                    }
+                
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }.start();
+
+    }
+
+
+    private static void deployDistantComputersList(String hostname) throws Exception{
+
+        new Thread() {
+            public void run() {
+
+                ProcessBuilder pb1 = new ProcessBuilder("scp", distantComputersList ,  username+"@"+hostname + ":"+distantPath);
+                Process p1;
+
+                try {
+                    p1 = pb1.start();
+
+                    boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+                    if (timeoutStatus1){
+                        System.out.println("  DONE: List Deploy  ("+hostname+")");
+                        scpComputersCountdown.countDown();
+
+                    } else {
+                        System.out.println("  TMO : List Deploy  ("+hostname+")");
+                        p1.destroy();
+                    }
+                
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }.start();
+
+    }
+
+    private static int countLines(String fileName) throws IOException {
+        FileReader fileReader = new FileReader(distantComputersList) ;
+        LineNumberReader reader = null;
+        try {
+            reader = new LineNumberReader(fileReader);
+            while ((reader.readLine()) != null);
+            return reader.getLineNumber();
+        } catch (Exception ex) {
+            return -1;
+        } finally { 
+            if(reader != null){
+                reader.close();
+            }
+            fileReader.close();
+        }
+        
+    }
+    
+
+}
+
+
