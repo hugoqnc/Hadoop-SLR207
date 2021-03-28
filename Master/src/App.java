@@ -20,6 +20,7 @@ public class App {
     private static CountDownLatch splitDeploymentCountdown;
     private static CountDownLatch mapCountdown;
     private static CountDownLatch scpComputersCountdown;
+    private static CountDownLatch shuffleCountdown;
 
 
 
@@ -31,6 +32,7 @@ public class App {
         splitDeploymentCountdown = new CountDownLatch(numberOfDistantComputers);
         mapCountdown = new CountDownLatch(numberOfDistantComputers);
         scpComputersCountdown = new CountDownLatch(numberOfDistantComputers);
+        shuffleCountdown = new CountDownLatch(numberOfDistantComputers);
 
         FileReader fr = new FileReader(distantComputersList) ;
         BufferedReader bu = new BufferedReader(fr) ;
@@ -83,7 +85,7 @@ public class App {
 
 
         //waiting for all threads to send splits to distant computers
-        boolean globalSplitTimeoutStatus = splitDeploymentCountdown.await(3*secondsTimeout, TimeUnit.SECONDS);
+        boolean globalSplitTimeoutStatus = splitDeploymentCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
 
         if (globalSplitTimeoutStatus){
             System.out.println("DONE: Split Deploy   (global)");
@@ -109,7 +111,7 @@ public class App {
 
 
         //waiting for all distant computers to finish the map phase
-        boolean globalMapTimeoutStatus = mapCountdown.await(3*secondsTimeout, TimeUnit.SECONDS);
+        boolean globalMapTimeoutStatus = mapCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
 
         if (globalMapTimeoutStatus){
             System.out.println("DONE: Map Compute    (global)");
@@ -132,16 +134,42 @@ public class App {
         }
 
         //waiting for all distant computers to receive the list of distant computers
-        boolean globalScpTimeoutStatus = scpComputersCountdown.await(3*secondsTimeout, TimeUnit.SECONDS);
+        boolean globalScpTimeoutStatus = scpComputersCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
 
         if (globalScpTimeoutStatus){
             System.out.println("DONE: List Deploy    (global)");
+
+            FileReader fr4 = new FileReader(distantComputersList) ;
+            BufferedReader bu4 = new BufferedReader(fr4) ;
+            Scanner sc4 = new Scanner(bu4) ;
+            int computerIndex4 = 0;
+
+            while(sc4.hasNextLine()){
+                String distantComputersListLine = sc4.nextLine();
+                computeShuffle(distantComputersListLine, computerIndex4);         
+                computerIndex4++;
+            }
+            sc4.close();
+            bu4.close();
+            fr4.close();
 
         } else {
             System.out.println("TMO : List Deploy    (global)");
             return;
         }
 
+        //waiting for all distant computers to finish the shuffle phase
+        boolean globalShuffleTimeoutStatus = shuffleCountdown.await(numberOfDistantComputers*numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
+
+        if (globalShuffleTimeoutStatus){
+            System.out.println("DONE: Shuffle        (global)");
+
+        } else {
+            System.out.println("TMO : Shuffle        (global)");
+            return;
+        }
+
+    
     }
     
 
@@ -169,7 +197,7 @@ public class App {
                             splitDeploymentCountdown.countDown();
             
                         } else {
-                            System.out.println("  TMO : Split Deploy: ("+hostname+")");
+                            System.out.println("  TMO : Split Deploy ("+hostname+")");
                             p2.destroy();
                         }
             
@@ -247,6 +275,38 @@ public class App {
         }.start();
 
     }
+
+
+    private static void computeShuffle(String hostname, int splitNumber) throws Exception{
+
+        new Thread() {
+            public void run() {
+
+                ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "cd "+distantPath+"; java -jar "+workerMapTaskName+" 1 UM"+splitNumber+".txt");
+                Process p1;
+
+                try {
+                    p1 = pb1.start();
+
+                    boolean timeoutStatus1 = p1.waitFor(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
+
+                    if (timeoutStatus1){
+                        System.out.println("  DONE: Shuffle      ("+hostname+")");
+                        shuffleCountdown.countDown();
+
+                    } else {
+                        System.out.println("  TMO : Shuffle      ("+hostname+")");
+                        p1.destroy();
+                    }
+                
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }.start();
+
+    }
+
 
     private static int countLines(String fileName) throws IOException {
         FileReader fileReader = new FileReader(distantComputersList) ;
