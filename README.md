@@ -20,8 +20,17 @@ This project is based upon a [practical work](https://remisharrock.fr/courses/si
 ## Code Organization
 ### Resources
 ### Clean
+```zsh
+cd Clean; java -jar Clean.jar; cd ..
+```
 ### Deploy
+```zsh
+cd Deploy; java -jar Deploy.jar; cd ..
+```
 ### Master
+```zsh
+cd Master; java -jar Master.jar; cd ..
+```
 ### Worker
 
 

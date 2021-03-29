@@ -21,6 +21,7 @@ public class App {
     private static CountDownLatch mapCountdown;
     private static CountDownLatch scpComputersCountdown;
     private static CountDownLatch shuffleCountdown;
+    private static CountDownLatch reduceCountdown;
 
 
 
@@ -33,6 +34,7 @@ public class App {
         mapCountdown = new CountDownLatch(numberOfDistantComputers);
         scpComputersCountdown = new CountDownLatch(numberOfDistantComputers);
         shuffleCountdown = new CountDownLatch(numberOfDistantComputers);
+        reduceCountdown = new CountDownLatch(numberOfDistantComputers);
 
         FileReader fr = new FileReader(distantComputersList) ;
         BufferedReader bu = new BufferedReader(fr) ;
@@ -164,8 +166,30 @@ public class App {
         if (globalShuffleTimeoutStatus){
             System.out.println("DONE: Shuffle        (global)");
 
+            FileReader fr5 = new FileReader(distantComputersList) ;
+            BufferedReader bu5 = new BufferedReader(fr5) ;
+            Scanner sc5 = new Scanner(bu5) ;
+            while(sc5.hasNextLine()){
+                String distantComputersListLine = sc5.nextLine();
+                computeReduce(distantComputersListLine);         
+            }
+            sc5.close();
+            bu5.close();
+            fr5.close();
+
         } else {
             System.out.println("TMO : Shuffle        (global)");
+            return;
+        }
+
+        //waiting for all distant computers to finish the shuffle phase
+        boolean globalReduceTimeoutStatus = reduceCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
+
+        if (globalReduceTimeoutStatus){
+            System.out.println("DONE: Reduce         (global)");
+
+        } else {
+            System.out.println("TMO : Reduce         (global)");
             return;
         }
 
@@ -296,6 +320,36 @@ public class App {
 
                     } else {
                         System.out.println("  TMO : Shuffle      ("+hostname+")");
+                        p1.destroy();
+                    }
+                
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }.start();
+
+    }
+
+    private static void computeReduce(String hostname) throws Exception{
+
+        new Thread() {
+            public void run() {
+
+                ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "cd "+distantPath+"; java -jar "+workerMapTaskName+" 2");
+                Process p1;
+
+                try {
+                    p1 = pb1.start();
+
+                    boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+                    if (timeoutStatus1){
+                        System.out.println("  DONE: Reduce       ("+hostname+")");
+                        reduceCountdown.countDown();
+
+                    } else {
+                        System.out.println("  TMO : Reduce       ("+hostname+")");
                         p1.destroy();
                     }
                 
