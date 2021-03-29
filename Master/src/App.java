@@ -1,10 +1,11 @@
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.LineNumberReader;
+import java.math.RoundingMode;
+import java.text.DecimalFormat;
 import java.util.Scanner;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -35,6 +36,9 @@ public class App {
         scpComputersCountdown = new CountDownLatch(numberOfDistantComputers);
         shuffleCountdown = new CountDownLatch(numberOfDistantComputers);
         reduceCountdown = new CountDownLatch(numberOfDistantComputers);
+
+        DecimalFormat df = new DecimalFormat("#.#"); //for time measurement
+        df.setRoundingMode(RoundingMode.CEILING);
 
         FileReader fr = new FileReader(distantComputersList) ;
         BufferedReader bu = new BufferedReader(fr) ;
@@ -89,6 +93,8 @@ public class App {
         //waiting for all threads to send splits to distant computers
         boolean globalSplitTimeoutStatus = splitDeploymentCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
 
+        long startMapTime = System.nanoTime();   
+
         if (globalSplitTimeoutStatus){
             System.out.println("DONE: Split Deploy   (global)");
 
@@ -114,9 +120,10 @@ public class App {
 
         //waiting for all distant computers to finish the map phase
         boolean globalMapTimeoutStatus = mapCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
+        long elapsedMapTime = System.nanoTime() - startMapTime;
 
         if (globalMapTimeoutStatus){
-            System.out.println("DONE: Map Compute    (global)");
+            System.out.println("DONE: Map Compute    (global)      | "+ df.format(elapsedMapTime/1000000000.) + " s");
 
             FileReader fr3 = new FileReader(distantComputersList) ;
             BufferedReader bu3 = new BufferedReader(fr3) ;
@@ -137,6 +144,8 @@ public class App {
 
         //waiting for all distant computers to receive the list of distant computers
         boolean globalScpTimeoutStatus = scpComputersCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
+
+        long startShuffleTime = System.nanoTime();   
 
         if (globalScpTimeoutStatus){
             System.out.println("DONE: List Deploy    (global)");
@@ -162,9 +171,12 @@ public class App {
 
         //waiting for all distant computers to finish the shuffle phase
         boolean globalShuffleTimeoutStatus = shuffleCountdown.await(numberOfDistantComputers*numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
+        long elapsedShuffleTime = System.nanoTime() - startShuffleTime;
+
+        long startReduceTime = System.nanoTime();   
 
         if (globalShuffleTimeoutStatus){
-            System.out.println("DONE: Shuffle        (global)");
+            System.out.println("DONE: Shuffle        (global)      | "+ df.format(elapsedShuffleTime/1000000000.) + " s");
 
             FileReader fr5 = new FileReader(distantComputersList) ;
             BufferedReader bu5 = new BufferedReader(fr5) ;
@@ -184,9 +196,10 @@ public class App {
 
         //waiting for all distant computers to finish the shuffle phase
         boolean globalReduceTimeoutStatus = reduceCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
+        long elapsedReduceTime = System.nanoTime() - startReduceTime;
 
         if (globalReduceTimeoutStatus){
-            System.out.println("DONE: Reduce         (global)");
+            System.out.println("DONE: Reduce         (global)      | "+ df.format(elapsedReduceTime/1000000000.) + " s");
 
         } else {
             System.out.println("TMO : Reduce         (global)");
