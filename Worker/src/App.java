@@ -1,6 +1,9 @@
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.LineNumberReader;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -20,6 +23,7 @@ public class App {
 
 
     private static List<Integer> hashCodeList = new ArrayList<Integer>();
+    private static List<Integer> reduceHashCodeList = new ArrayList<Integer>();
 
     private static int secondsTimeout = 5;
     
@@ -31,11 +35,15 @@ public class App {
             splitFileName = args[1];
             split();
         }
-        if(operatingMode==1){ //hash and shuffle phase
+        else if(operatingMode==1){ //hash and shuffle phase
             mapFileName = args[1];
             hash();
             shuffle();
         }
+        else if(operatingMode==2){
+            reduce();
+        }
+
     }
 
     private static void split() throws Exception{
@@ -189,8 +197,108 @@ public class App {
         }
     }
 
+    private static void reduce() throws Exception{
+        System.out.println("STARTED");
+        
+        ProcessBuilder pb1 = new ProcessBuilder("mkdir","reduces");
+        Process p1 = pb1.start();
+
+        boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+        if (timeoutStatus1){
+            ProcessBuilder pb2 = new ProcessBuilder("ls","-1","shufflesreceived"); //-1 gives one output per line
+            Process p2 = pb2.start();
+
+            boolean timeoutStatus2 = p2.waitFor(secondsTimeout, TimeUnit.SECONDS);
+    
+            if (timeoutStatus2){
+                InputStream is = p2.getInputStream();
+                BufferedReader br = new BufferedReader(new InputStreamReader(is));
+                String lineShuffleFileName;
+
+                boolean e = false; //error?
+    
+                while ((lineShuffleFileName = br.readLine()) != null){
+
+                    int hash = Integer.parseInt(lineShuffleFileName.substring(0, lineShuffleFileName.indexOf("-")));
+                    String reduceFileName = String.valueOf(hash)+".txt";
+
+                    if(!reduceHashCodeList.contains(hash)){
+                        reduceHashCodeList.add(hash);
+                    }
+
+                    File file = new File("reduces/"+reduceFileName);
+                    file.createNewFile();
+                    FileWriter writer = new FileWriter(file, true); // if the file already exists, appends text to the existing file
+                    
+                    FileReader reader = new FileReader("shufflesreceived/"+lineShuffleFileName);
+                    Scanner scanner = new Scanner(reader);
+        
+                    while(scanner.hasNextLine()){
+                        String inputLine = scanner.nextLine();
+                        writer.write(inputLine+"\n");
+                    }
+
+                    writer.flush();
+                    writer.close();
+
+                    scanner.close();
+                    reader.close();
+
+                }
+
+                InputStream es = p2.getErrorStream();
+                BufferedReader ber = new BufferedReader(new InputStreamReader(es));
+                String eLine;
+                
+                while ((eLine = ber.readLine()) != null){
+                    System.out.println("--ERROR: ls - "+ eLine);
+                    e = true;
+                }
+
+                br.close();
+                is.close();
+                ber.close();
+                es.close();
+
+                if (!e) { //we should have the two output files created but note reduced yet
+                    for (int hash : reduceHashCodeList){
+                        String reduceFileName = String.valueOf(hash)+".txt";
+
+                        int occurences = countLines("reduces/"+reduceFileName);
+
+                        FileReader reader = new FileReader("reduces/"+reduceFileName);
+                        Scanner scanner = new Scanner(reader);
+                        String word = scanner.next();
+                        scanner.close();
+                        reader.close();
+
+                        File file = new File("reduces/"+reduceFileName);
+                        file.createNewFile();
+                        FileWriter writer = new FileWriter(file);
+                        writer.write(word+" "+String.valueOf(occurences)+"\n");
+                        writer.close();
+                    }
+
+                }   
+
+            } else {
+                System.out.println("TIMEOUT 'ls'");
+                p2.destroy();
+            }
+        } else {
+            System.out.println("TIMEOUT 'mkdir'");
+            p1.destroy();
+        }
+
+        System.out.println("REDUCE DONE");
+        
+    }
+
+
+
     private static int countLines(String fileName) throws Exception {
-        FileReader fileReader = new FileReader(distantComputersList) ;
+        FileReader fileReader = new FileReader(fileName);
         LineNumberReader reader = null;
         try {
             reader = new LineNumberReader(fileReader);
