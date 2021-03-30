@@ -1,11 +1,15 @@
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.LineNumberReader;
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -15,20 +19,20 @@ public class App {
     private static String username = "hqueinnec";
     private static String distantPath = "/tmp/hugo";
     private static String distantComputersList = "../Resources/machines.txt";
-    private static String localSplitsPath = "../Resources/splits";
+    private static String localSplitsPath = "../Resources/splits/";
+    private static String inputsPath = "../Resources/inputs/";
     private static String workerMapTaskName = "Worker.jar";
+    private static int secondsTimeout = 10;
     private static int numberOfDistantComputers;
+    private static int totalLineNumber;
+
     private static CountDownLatch splitDeploymentCountdown;
     private static CountDownLatch mapCountdown;
     private static CountDownLatch scpComputersCountdown;
     private static CountDownLatch shuffleCountdown;
     private static CountDownLatch reduceCountdown;
 
-
-
-    private static int secondsTimeout = 10;
-
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) throws Exception { //enter input file name as first argument (it should be placed in ../Resources/inputs/)
 
         numberOfDistantComputers = countLines(distantComputersList);
         splitDeploymentCountdown = new CountDownLatch(numberOfDistantComputers);
@@ -39,6 +43,51 @@ public class App {
 
         DecimalFormat df = new DecimalFormat("#.#"); //for time measurement
         df.setRoundingMode(RoundingMode.CEILING);
+
+        System.out.println("START: Splitting     (local)");
+
+        ProcessBuilder pb1 = new ProcessBuilder("mkdir",localSplitsPath);
+        Process p1 = pb1.start();
+
+        boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+        if (!timeoutStatus1){
+            System.out.println("TIMEOUT 'mkdir'");
+            p1.destroy();
+            return;
+        }
+
+        String inputFile = args[0];
+
+        FileReader reader = new FileReader(inputsPath+inputFile);
+        Scanner scanner = new Scanner(reader);
+
+        List<FileWriter> listOfSplitFiles = new ArrayList<FileWriter>();
+
+        for (int i = 0; i < numberOfDistantComputers; i++) {
+            String outputFileName = "S"+String.valueOf(i)+".txt";
+            File file = new File(localSplitsPath+outputFileName);
+            file.createNewFile();
+            FileWriter writer = new FileWriter(file);
+            listOfSplitFiles.add(writer);
+        }
+
+        int currentLineNumber = 0;
+        while(scanner.hasNextLine()){
+            listOfSplitFiles.get(currentLineNumber%numberOfDistantComputers).write(scanner.nextLine()+"\n");
+            currentLineNumber++;
+        }
+        totalLineNumber = currentLineNumber;
+
+        scanner.close();
+        reader.close();
+        for (int i = 0; i < numberOfDistantComputers; i++) {
+            listOfSplitFiles.get(i).close();
+        }
+
+        System.out.println("DONE: Splitting      (local)");
+
+
 
         FileReader fr = new FileReader(distantComputersList) ;
         BufferedReader bu = new BufferedReader(fr) ;
@@ -170,7 +219,7 @@ public class App {
         }
 
         //waiting for all distant computers to finish the shuffle phase
-        boolean globalShuffleTimeoutStatus = shuffleCountdown.await(numberOfDistantComputers*numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
+        boolean globalShuffleTimeoutStatus = shuffleCountdown.await(10*totalLineNumber*numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS); //TODO
         long elapsedShuffleTime = System.nanoTime() - startShuffleTime;
 
         long startReduceTime = System.nanoTime();   
@@ -224,7 +273,7 @@ public class App {
                     boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
                     if (timeoutStatus1){
-                        ProcessBuilder pb2 = new ProcessBuilder("scp", localSplitsPath+"/S"+splitNumber+".txt" ,  username+"@"+hostname + ":"+distantPath+"/splits");
+                        ProcessBuilder pb2 = new ProcessBuilder("scp", localSplitsPath+"S"+splitNumber+".txt" ,  username+"@"+hostname + ":"+distantPath+"/splits");
                         Process p2 = pb2.start();
                 
                         boolean timeoutStatus2 = p2.waitFor(secondsTimeout, TimeUnit.SECONDS);
@@ -325,9 +374,31 @@ public class App {
                 try {
                     p1 = pb1.start();
 
-                    boolean timeoutStatus1 = p1.waitFor(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
+                    InputStream is = p1.getInputStream();
+                    BufferedReader br = new BufferedReader(new InputStreamReader(is));
+                    String line;
+            
+                    while ((line = br.readLine()) != null){ //to empty the worker buffer, we need to read it 
+                        //System.out.println(line); //DEBUG
+                    }
+                    
+                    boolean hasTimedOut = false;
+                    InputStream es = p1.getErrorStream();
+                    BufferedReader ber = new BufferedReader(new InputStreamReader(es));
+                    String eLine;
+                    
+                    while ((eLine = ber.readLine()) != null){
+                        System.out.println(eLine);
+                        if(line=="TIMEOUT SHUFFLE"){
+                            hasTimedOut = true;
+                        }
+                    }
+                    
 
-                    if (timeoutStatus1){
+                    boolean timeoutStatus1 = p1.waitFor(3*secondsTimeout, TimeUnit.SECONDS); //TODO
+
+
+                    if (timeoutStatus1 && !hasTimedOut){
                         System.out.println("  DONE: Shuffle      ("+hostname+")");
                         shuffleCountdown.countDown();
 
