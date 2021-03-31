@@ -14,6 +14,7 @@ import java.util.Scanner;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+
 public class App {
 
     private static String username = "hqueinnec";
@@ -21,8 +22,10 @@ public class App {
     private static String distantComputersList = "../Resources/machines.txt";
     private static String localSplitsPath = "../Resources/splits/";
     private static String inputsPath = "../Resources/inputs/";
+    private static String outputPath = "../Resources/outputs/";
     private static String workerMapTaskName = "Worker.jar";
     private static int secondsTimeout = 10;
+    private static String inputFileName;
     private static int numberOfDistantComputers;
     private static int totalLineNumber;
 
@@ -57,9 +60,9 @@ public class App {
             return;
         }
 
-        String inputFile = args[0];
+        inputFileName = args[0];
 
-        FileReader reader = new FileReader(inputsPath+inputFile);
+        FileReader reader = new FileReader(inputsPath+inputFileName);
         Scanner scanner = new Scanner(reader);
 
         List<FileWriter> listOfSplitFiles = new ArrayList<FileWriter>();
@@ -247,11 +250,22 @@ public class App {
         boolean globalReduceTimeoutStatus = reduceCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
         long elapsedReduceTime = System.nanoTime() - startReduceTime;
 
+        boolean successfulGatherReduces;
+
         if (globalReduceTimeoutStatus){
             System.out.println("DONE: Reduce         (global)      | "+ df.format(elapsedReduceTime/1000000000.) + " s");
-
+            successfulGatherReduces = gatherReduces();
         } else {
             System.out.println("TMO : Reduce         (global)");
+            return;
+        }
+
+        //waiting for gathering reduces 
+        if (successfulGatherReduces){
+            System.out.println("DONE: Gather Reduce  (global)");
+
+        } else {
+            System.out.println("TMO : Gather Reduce  (global)");
             return;
         }
 
@@ -445,6 +459,112 @@ public class App {
 
     }
 
+    private static boolean gatherReduces() throws Exception {
+
+        ProcessBuilder pb1 = new ProcessBuilder("mkdir",outputPath);
+        Process p1 = pb1.start();
+
+        boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+        if (!timeoutStatus1){
+            System.out.println("TIMEOUT 'mkdir'");
+            p1.destroy();
+            return false;
+        }
+
+        String outputFileName = inputFileName.substring(0, inputFileName.indexOf('.')) + "-REDUCED.txt"; 
+
+        File file = new File(outputPath+outputFileName);
+        file.createNewFile();
+        FileWriter writer = new FileWriter(file);
+
+
+        FileReader fr = new FileReader(distantComputersList) ;
+        BufferedReader bu = new BufferedReader(fr) ;
+        Scanner sc = new Scanner(bu) ;
+
+        while(sc.hasNextLine()){
+            String distantComputersListLine = sc.nextLine();
+
+            ProcessBuilder pb2 = new ProcessBuilder("ssh", username+"@"+distantComputersListLine,"; cd "+distantPath,"; ls","-1","reduces"); //-1 gives one output per line
+            Process p2 = pb2.start();
+
+            boolean timeoutStatus2 = p2.waitFor(secondsTimeout, TimeUnit.SECONDS);
+    
+            if (timeoutStatus2){
+                InputStream is = p2.getInputStream();
+                BufferedReader br = new BufferedReader(new InputStreamReader(is));
+                String lineReduceFileName;
+    
+                while ((lineReduceFileName = br.readLine()) != null){
+
+                    ProcessBuilder pb3= new ProcessBuilder("ssh", username+"@"+distantComputersListLine,"; cd "+distantPath,"; cat","reduces/"+lineReduceFileName); //-1 gives one output per line
+                    Process p3 = pb3.start();
+
+                    boolean timeoutStatus3 = p3.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+                    if(timeoutStatus3){
+                        InputStream is3 = p3.getInputStream();
+                        BufferedReader br3 = new BufferedReader(new InputStreamReader(is3));
+                        String lineCurrentReduce;
+
+                        while ((lineCurrentReduce = br3.readLine()) != null){
+                            writer.write(lineCurrentReduce+"\n");
+                        }
+
+                        writer.flush();
+                        br3.close();
+                        is3.close();
+
+                    } else {
+                        System.out.println("  TMO : Gather Red   ("+distantComputersListLine+")");
+                        p3.destroy();
+                        br.close();
+                        is.close();
+                        return false;
+                        
+                    }
+                    
+                }
+
+                InputStream es = p2.getErrorStream();
+                BufferedReader ber = new BufferedReader(new InputStreamReader(es));
+                String eLine;
+                
+                while ((eLine = ber.readLine()) != null){
+                    System.out.println("--ERROR: ls - "+ eLine);
+                    br.close();
+                    is.close();
+                    ber.close();
+                    es.close();
+                    writer.close();
+                    return false;
+                }
+
+                br.close();
+                is.close();
+                ber.close();
+                es.close();
+
+            } else {
+                System.out.println("TIMEOUT 'ls -1'");
+                p2.destroy();
+                sc.close();
+                writer.close();
+                return false;
+            }
+
+            System.out.println("  DONE: Gather Red   ("+distantComputersListLine+")");
+
+        }
+
+        sc.close();
+        bu.close();
+        fr.close();
+
+        writer.close();
+        return true;
+    }
 
     private static int countLines(String fileName) throws IOException {
         FileReader fileReader = new FileReader(distantComputersList) ;
