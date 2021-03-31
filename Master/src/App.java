@@ -24,7 +24,8 @@ public class App {
     private static String inputsPath = "../Resources/inputs/";
     private static String outputPath = "../Resources/outputs/";
     private static String workerMapTaskName = "Worker.jar";
-    private static int secondsTimeout = 10;
+    private static String outputAllReducedFileName = "all_reduced.txt";
+    private static int secondsTimeout = 20;
     private static String inputFileName;
     private static int numberOfDistantComputers;
     private static int totalLineNumber;
@@ -88,9 +89,9 @@ public class App {
             listOfSplitFiles.get(i).close();
         }
 
-        System.out.println("DONE: Splitting      (local)");
+        System.out.println("DONE : Splitting      (local)");
 
-
+        System.out.println("START: Split Deploy   (global)");
 
         FileReader fr = new FileReader(distantComputersList) ;
         BufferedReader bu = new BufferedReader(fr) ;
@@ -112,7 +113,7 @@ public class App {
                 boolean e = false; //error?
     
                 while ((line = br.readLine()) != null){
-                    System.out.println("  DONE: Connection   ("+ line +")");
+                    System.out.println("  DONE : Connection   ("+ line +")");
                 }
 
                 InputStream es = p.getErrorStream();
@@ -132,7 +133,7 @@ public class App {
                 if (!e) {deploySplit(distantComputersListLine, computerIndex);}                
 
             } else {
-                System.out.println("  TMO : Connection   ("+distantComputersListLine+")");
+                System.out.println("  TMOUT: Connection   ("+distantComputersListLine+")");
                 p.destroy();
             }
             computerIndex++;
@@ -148,7 +149,8 @@ public class App {
         long startMapTime = System.nanoTime();   
 
         if (globalSplitTimeoutStatus){
-            System.out.println("DONE: Split Deploy   (global)");
+            System.out.println("DONE : Split Deploy   (global)");
+            System.out.println("START: Map Compute    (global)");
 
             FileReader fr2 = new FileReader(distantComputersList) ;
             BufferedReader bu2 = new BufferedReader(fr2) ;
@@ -165,7 +167,7 @@ public class App {
             fr2.close();
 
         } else {
-            System.out.println("TMO : Split Deploy   (global)");
+            System.out.println("TMOUT: Split Deploy   (global)");
             return;
         }
 
@@ -175,7 +177,9 @@ public class App {
         long elapsedMapTime = System.nanoTime() - startMapTime;
 
         if (globalMapTimeoutStatus){
-            System.out.println("DONE: Map Compute    (global)      | "+ df.format(elapsedMapTime/1000000000.) + " s");
+            System.out.println("DONE : Map Compute    (global)      | "+ df.format(elapsedMapTime/1000000000.) + " s");
+            System.out.println("START: List Deploy    (global)");
+
 
             FileReader fr3 = new FileReader(distantComputersList) ;
             BufferedReader bu3 = new BufferedReader(fr3) ;
@@ -190,7 +194,7 @@ public class App {
             fr3.close();
 
         } else {
-            System.out.println("TMO : Map Compute    (global)");
+            System.out.println("TMOUT: Map Compute    (global)");
             return;
         }
 
@@ -200,7 +204,9 @@ public class App {
         long startShuffleTime = System.nanoTime();   
 
         if (globalScpTimeoutStatus){
-            System.out.println("DONE: List Deploy    (global)");
+            System.out.println("DONE : List Deploy    (global)");
+            System.out.println("START: Shuffle        (global)");
+
 
             FileReader fr4 = new FileReader(distantComputersList) ;
             BufferedReader bu4 = new BufferedReader(fr4) ;
@@ -217,7 +223,7 @@ public class App {
             fr4.close();
 
         } else {
-            System.out.println("TMO : List Deploy    (global)");
+            System.out.println("TMOUT: List Deploy    (global)");
             return;
         }
 
@@ -228,7 +234,9 @@ public class App {
         long startReduceTime = System.nanoTime();   
 
         if (globalShuffleTimeoutStatus){
-            System.out.println("DONE: Shuffle        (global)      | "+ df.format(elapsedShuffleTime/1000000000.) + " s");
+            System.out.println("DONE : Shuffle        (global)      | "+ df.format(elapsedShuffleTime/1000000000.) + " s");
+            System.out.println("START: Reduce         (global)");
+
 
             FileReader fr5 = new FileReader(distantComputersList) ;
             BufferedReader bu5 = new BufferedReader(fr5) ;
@@ -242,7 +250,7 @@ public class App {
             fr5.close();
 
         } else {
-            System.out.println("TMO : Shuffle        (global)");
+            System.out.println("TMOUT: Shuffle        (global)");
             return;
         }
 
@@ -253,19 +261,21 @@ public class App {
         boolean successfulGatherReduces;
 
         if (globalReduceTimeoutStatus){
-            System.out.println("DONE: Reduce         (global)      | "+ df.format(elapsedReduceTime/1000000000.) + " s");
+            System.out.println("DONE : Reduce         (global)      | "+ df.format(elapsedReduceTime/1000000000.) + " s");
+            System.out.println("START: Gather Reduce  (global)");
+
             successfulGatherReduces = gatherReduces();
         } else {
-            System.out.println("TMO : Reduce         (global)");
+            System.out.println("TMOUT: Reduce         (global)");
             return;
         }
 
         //waiting for gathering reduces 
         if (successfulGatherReduces){
-            System.out.println("DONE: Gather Reduce  (global)");
+            System.out.println("DONE : Gather Reduce  (global)");
 
         } else {
-            System.out.println("TMO : Gather Reduce  (global)");
+            System.out.println("TMOUT: Gather Reduce  (global)");
             return;
         }
 
@@ -293,16 +303,16 @@ public class App {
                         boolean timeoutStatus2 = p2.waitFor(secondsTimeout, TimeUnit.SECONDS);
             
                         if (timeoutStatus2){
-                            System.out.println("  DONE: Split Deploy ("+hostname+")");
+                            System.out.println("  DONE : Split Deploy ("+hostname+")");
                             splitDeploymentCountdown.countDown();
             
                         } else {
-                            System.out.println("  TMO : Split Deploy ("+hostname+")");
+                            System.out.println("  TMOUT: Split Deploy ("+hostname+")");
                             p2.destroy();
                         }
             
                     } else {
-                        System.out.println("  TMO : Mkdir        ("+hostname+")");
+                        System.out.println("  TMOUT: Mkdir        ("+hostname+")");
                         p1.destroy();
                     }
                 
@@ -329,11 +339,11 @@ public class App {
                     boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
                     if (timeoutStatus1){
-                        System.out.println("  DONE: Map Compute  ("+hostname+")");
+                        System.out.println("  DONE : Map Compute  ("+hostname+")");
                         mapCountdown.countDown();
 
                     } else {
-                        System.out.println("  TMO : Map Compute  ("+hostname+")");
+                        System.out.println("  TMOUT: Map Compute  ("+hostname+")");
                         p1.destroy();
                     }
                 
@@ -360,11 +370,11 @@ public class App {
                     boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
                     if (timeoutStatus1){
-                        System.out.println("  DONE: List Deploy  ("+hostname+")");
+                        System.out.println("  DONE : List Deploy  ("+hostname+")");
                         scpComputersCountdown.countDown();
 
                     } else {
-                        System.out.println("  TMO : List Deploy  ("+hostname+")");
+                        System.out.println("  TMOUT: List Deploy  ("+hostname+")");
                         p1.destroy();
                     }
                 
@@ -413,11 +423,11 @@ public class App {
 
 
                     if (timeoutStatus1 && !hasTimedOut){
-                        System.out.println("  DONE: Shuffle      ("+hostname+")");
+                        System.out.println("  DONE : Shuffle      ("+hostname+")");
                         shuffleCountdown.countDown();
 
                     } else {
-                        System.out.println("  TMO : Shuffle      ("+hostname+")");
+                        System.out.println("  TMOUT: Shuffle      ("+hostname+")");
                         p1.destroy();
                     }
                 
@@ -443,11 +453,11 @@ public class App {
                     boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
                     if (timeoutStatus1){
-                        System.out.println("  DONE: Reduce       ("+hostname+")");
+                        System.out.println("  DONE : Reduce       ("+hostname+")");
                         reduceCountdown.countDown();
 
                     } else {
-                        System.out.println("  TMO : Reduce       ("+hostname+")");
+                        System.out.println("  TMOUT: Reduce       ("+hostname+")");
                         p1.destroy();
                     }
                 
@@ -486,76 +496,36 @@ public class App {
         while(sc.hasNextLine()){
             String distantComputersListLine = sc.nextLine();
 
-            ProcessBuilder pb2 = new ProcessBuilder("ssh", username+"@"+distantComputersListLine,"; cd "+distantPath,"; ls","-1","reduces"); //-1 gives one output per line
-            Process p2 = pb2.start();
+            ProcessBuilder pb3= new ProcessBuilder("ssh", username+"@"+distantComputersListLine,"; cd "+distantPath,"; cat",outputAllReducedFileName); 
+            Process p3 = pb3.start();
 
-            boolean timeoutStatus2 = p2.waitFor(secondsTimeout, TimeUnit.SECONDS);
-    
-            if (timeoutStatus2){
-                InputStream is = p2.getInputStream();
-                BufferedReader br = new BufferedReader(new InputStreamReader(is));
-                String lineReduceFileName;
-    
-                while ((lineReduceFileName = br.readLine()) != null){
+            boolean timeoutStatus3 = p3.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
-                    ProcessBuilder pb3= new ProcessBuilder("ssh", username+"@"+distantComputersListLine,"; cd "+distantPath,"; cat","reduces/"+lineReduceFileName); //-1 gives one output per line
-                    Process p3 = pb3.start();
+            if(timeoutStatus3){
+                InputStream is3 = p3.getInputStream();
+                BufferedReader br3 = new BufferedReader(new InputStreamReader(is3));
+                String lineCurrentReduce;
 
-                    boolean timeoutStatus3 = p3.waitFor(secondsTimeout, TimeUnit.SECONDS);
-
-                    if(timeoutStatus3){
-                        InputStream is3 = p3.getInputStream();
-                        BufferedReader br3 = new BufferedReader(new InputStreamReader(is3));
-                        String lineCurrentReduce;
-
-                        while ((lineCurrentReduce = br3.readLine()) != null){
-                            writer.write(lineCurrentReduce+"\n");
-                        }
-
-                        writer.flush();
-                        br3.close();
-                        is3.close();
-
-                    } else {
-                        System.out.println("  TMO : Gather Red   ("+distantComputersListLine+")");
-                        p3.destroy();
-                        br.close();
-                        is.close();
-                        return false;
-                        
-                    }
-                    
+                while ((lineCurrentReduce = br3.readLine()) != null){
+                    writer.write(lineCurrentReduce+"\n");
                 }
 
-                InputStream es = p2.getErrorStream();
-                BufferedReader ber = new BufferedReader(new InputStreamReader(es));
-                String eLine;
-                
-                while ((eLine = ber.readLine()) != null){
-                    System.out.println("--ERROR: ls - "+ eLine);
-                    br.close();
-                    is.close();
-                    ber.close();
-                    es.close();
-                    writer.close();
-                    return false;
-                }
-
-                br.close();
-                is.close();
-                ber.close();
-                es.close();
+                writer.flush();
+                br3.close();
+                is3.close();
 
             } else {
-                System.out.println("TIMEOUT 'ls -1'");
-                p2.destroy();
+                System.out.println("  TMOUT: Gather Red   ("+distantComputersListLine+")");
+                p3.destroy();
                 sc.close();
+                bu.close();
+                fr.close();
                 writer.close();
                 return false;
+                
             }
-
-            System.out.println("  DONE: Gather Red   ("+distantComputersListLine+")");
-
+            
+            System.out.println("  DONE : Gather Red   ("+distantComputersListLine+")");
         }
 
         sc.close();

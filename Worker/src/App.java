@@ -19,6 +19,7 @@ public class App {
     private static String username = "hqueinnec";
     private static String distantComputersList = "machines.txt";
     private static String distantPath = "/tmp/hugo";
+    private static String outputAllReducedFileName = "all_reduced.txt";
     private static int numberOfDistantComputers;
 
     private static List<Integer> hashCodeList = new ArrayList<Integer>();
@@ -46,6 +47,7 @@ public class App {
         }
         else if(operatingMode==2){ //reduce phase
             reduce();
+            gatherReduce();
         }
         System.exit(0);
     }
@@ -317,7 +319,7 @@ public class App {
                 ber.close();
                 es.close();
 
-                if (!e) { //we should have the two output files created but note reduced yet
+                if (!e) { //we should have the output files created but not reduced yet
                     for (int hash : reduceHashCodeList){
                         String reduceFileName = String.valueOf(hash)+".txt";
 
@@ -349,6 +351,97 @@ public class App {
 
         System.out.println("REDUCE DONE");
         
+    }
+
+    private static boolean gatherReduce() throws Exception {
+        System.out.println("STARTED");
+
+        File file = new File(outputAllReducedFileName);
+        file.createNewFile();
+        FileWriter writer = new FileWriter(file);
+
+
+        FileReader fr = new FileReader(distantComputersList) ;
+        BufferedReader bu = new BufferedReader(fr) ;
+        Scanner sc = new Scanner(bu) ;
+
+        ProcessBuilder pb2 = new ProcessBuilder("ls","-1","reduces"); //-1 gives one output per line
+        Process p2 = pb2.start();
+
+        boolean timeoutStatus2 = p2.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+        if (timeoutStatus2){
+            InputStream is = p2.getInputStream();
+            BufferedReader br = new BufferedReader(new InputStreamReader(is));
+            String lineReduceFileName;
+
+            while ((lineReduceFileName = br.readLine()) != null){
+
+                ProcessBuilder pb3= new ProcessBuilder("cat","reduces/"+lineReduceFileName); //-1 gives one output per line
+                Process p3 = pb3.start();
+
+                boolean timeoutStatus3 = p3.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+                if(timeoutStatus3){
+                    InputStream is3 = p3.getInputStream();
+                    BufferedReader br3 = new BufferedReader(new InputStreamReader(is3));
+                    String lineCurrentReduce;
+
+                    while ((lineCurrentReduce = br3.readLine()) != null){
+                        writer.write(lineCurrentReduce+"\n");
+                    }
+
+                    writer.flush();
+                    br3.close();
+                    is3.close();
+
+                } else {
+                    System.out.println("  TMO : Gather Reduces");
+                    p3.destroy();
+                    br.close();
+                    is.close();
+                    return false;
+                    
+                }
+                
+            }
+
+            InputStream es = p2.getErrorStream();
+            BufferedReader ber = new BufferedReader(new InputStreamReader(es));
+            String eLine;
+            
+            while ((eLine = ber.readLine()) != null){
+                System.out.println("--ERROR: ls - "+ eLine);
+                br.close();
+                is.close();
+                ber.close();
+                es.close();
+                writer.close();
+                return false;
+            }
+
+            br.close();
+            is.close();
+            ber.close();
+            es.close();
+
+        } else {
+            System.out.println("TIMEOUT 'ls -1'");
+            p2.destroy();
+            sc.close();
+            writer.close();
+            return false;
+        }
+
+        System.out.println("  DONE: Gather Reduces");
+
+        sc.close();
+        bu.close();
+        fr.close();
+
+        writer.close();
+        return true;
+
     }
 
 
