@@ -48,7 +48,7 @@ public class App {
         DecimalFormat df = new DecimalFormat("#.#"); //for time measurement
         df.setRoundingMode(RoundingMode.CEILING);
 
-        System.out.println("START: Splitting     (local)");
+        System.out.println("START: Splitting      (local)");
 
         ProcessBuilder pb1 = new ProcessBuilder("mkdir",localSplitsPath);
         Process p1 = pb1.start();

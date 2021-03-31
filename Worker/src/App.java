@@ -61,7 +61,8 @@ public class App {
         boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
         if (timeoutStatus1){
-            String outputFileName = "UM"+splitFileName.charAt(1)+".txt";
+            String outputFileName = "UM"+splitFileName.substring(1);
+            //String outputFileName = "UM"+splitFileName.charAt(1)+".txt"; 
             File file = new File("maps/"+outputFileName);
             file.createNewFile();
             FileWriter writer = new FileWriter(file);
