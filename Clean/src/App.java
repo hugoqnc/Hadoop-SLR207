@@ -3,7 +3,6 @@ import java.io.FileReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Scanner;
 import java.util.concurrent.TimeUnit;
 
@@ -14,10 +13,11 @@ public class App {
     private static String distantComputersList = "../Resources/machines.txt";
     private static String distantPath = "/tmp/hugo";
     private static int secondsTimeout = 10;
-    private static int numberOfDistantComputers =0;
+    private static boolean verbose = false; //if true, shows DONE status for each individual distant computer
 
     private static HashMap<String,Process> mapOfProcesses;
 
+    private static int numberOfDistantComputers = 0;
     private static int connectionCount = 0;
     private static int cleanCount = 0;
 
@@ -29,6 +29,8 @@ public class App {
         Scanner sc = new Scanner(bu) ;
 
         //connecting test
+        System.out.println("START: Connection     (global)");
+
         while(sc.hasNextLine()){
             numberOfDistantComputers++;
             String distantComputersListLine = sc.nextLine();
@@ -53,7 +55,7 @@ public class App {
                 boolean e = false; //error?
     
                 while ((line = br.readLine()) != null){
-                    System.out.println("  DONE : Connection   ("+ line +")");
+                    if (verbose) System.out.println("  DONE : Connection   ("+ line +")");
                 }
                 InputStream es = p.getErrorStream();
                 BufferedReader ber = new BufferedReader(new InputStreamReader(es));
@@ -80,9 +82,10 @@ public class App {
             System.out.println("TMOUT: Connection     (global)");
             return;
         }
+        System.out.println("DONE : Connection     (global)");
+
 
         //cleaning
-
         System.out.println("START: Cleaning       (global)");
 
         for (String hostname : mapOfProcesses.keySet()){
@@ -94,7 +97,7 @@ public class App {
             boolean timeoutStatus1 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
             if (timeoutStatus1){  
-                System.out.println("  DONE : Cleaning     ("+hostname+")");
+                if (verbose) System.out.println("  DONE : Cleaning     ("+hostname+")");
                 cleanCount++;
             } else {
                 System.out.println("  TMOUT: Cleaning     ("+hostname+")");
