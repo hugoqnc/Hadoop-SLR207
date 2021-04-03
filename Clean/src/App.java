@@ -2,28 +2,47 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Scanner;
 import java.util.concurrent.TimeUnit;
+
 
 public class App {
 
     private static String username = "hqueinnec";
     private static String distantComputersList = "../Resources/machines.txt";
     private static String distantPath = "/tmp/hugo";
-
     private static int secondsTimeout = 10;
+    private static int numberOfDistantComputers =0;
+
+    private static HashMap<String,Process> mapOfProcesses;
+
+    private static int connectionCount = 0;
+    private static int cleanCount = 0;
 
     public static void main(String[] args) throws Exception {
+        mapOfProcesses = new HashMap<String,Process>();
 
         FileReader fr = new FileReader(distantComputersList) ;
         BufferedReader bu = new BufferedReader(fr) ;
         Scanner sc = new Scanner(bu) ;
 
+        //connecting test
         while(sc.hasNextLine()){
+            numberOfDistantComputers++;
             String distantComputersListLine = sc.nextLine();
             ProcessBuilder pb = new ProcessBuilder("ssh", username+"@"+distantComputersListLine, "hostname");
             Process p = pb.start();
+            mapOfProcesses.put(distantComputersListLine, p);
+        }
 
+        sc.close();
+        bu.close();
+        fr.close();
+
+        for(String hostname : mapOfProcesses.keySet()){
+            Process p = mapOfProcesses.get(hostname);
             boolean timeoutStatus = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
     
             if (timeoutStatus){
@@ -34,7 +53,7 @@ public class App {
                 boolean e = false; //error?
     
                 while ((line = br.readLine()) != null){
-                    System.out.println("  DONE: Connection   ("+ line +")");
+                    System.out.println("  DONE : Connection   ("+ line +")");
                 }
                 InputStream es = p.getErrorStream();
                 BufferedReader ber = new BufferedReader(new InputStreamReader(es));
@@ -49,17 +68,42 @@ public class App {
                 ber.close();
                 es.close();
 
-                if (!e) {clean(distantComputersListLine);}
+                if (!e) {connectionCount++;}
 
             } else {
-                System.out.println("  TMO : Connection   ("+distantComputersListLine+")");
+                System.out.println("  TMOUT: Connection   ("+hostname+")");
                 p.destroy();
             }
-            
         }
-        sc.close();
-        bu.close();
-        fr.close();
+
+        if(connectionCount!=numberOfDistantComputers){
+            System.out.println("TMOUT: Connection     (global)");
+            return;
+        }
+
+        //cleaning
+
+        System.out.println("START: Cleaning       (global)");
+
+        for (String hostname : mapOfProcesses.keySet()){
+            clean(hostname);
+        }
+
+        for(String hostname : mapOfProcesses.keySet()){
+            Process p = mapOfProcesses.get(hostname);
+            boolean timeoutStatus1 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+            if (timeoutStatus1){  
+                    System.out.println("  DONE : Cleaning     ("+hostname+")");
+            } else {
+                System.out.println("  TMOUT: Cleaning     ("+hostname+")");
+                p.destroy();
+            }
+        }
+
+        System.out.println("DONE : Cleaning       (global)");
+
+
 
     }
 
@@ -67,19 +111,8 @@ public class App {
 
         ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "rm -rf " + distantPath);
         Process p1 = pb1.start();
-
-        boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
-
-        if (timeoutStatus1){  
-                System.out.println("  DONE: Cleaning     ("+hostname+")");
-        } else {
-            System.out.println("  TMO : Cleaning     ("+hostname+")");
-            p1.destroy();
-        }
-
-
-
-
+        mapOfProcesses.replace(hostname, p1);
+    
     }
 
 }
