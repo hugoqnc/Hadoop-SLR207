@@ -27,7 +27,7 @@ public class App {
     private static CountDownLatch mkdirCountdown;
     private static boolean hasTimedOut = false;
 
-    private static int secondsTimeout = 7;
+    private static int secondsTimeout = 120;
     
     public static void main(String[] args) throws Exception {
 

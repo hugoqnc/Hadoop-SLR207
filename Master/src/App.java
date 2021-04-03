@@ -7,9 +7,11 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.LineNumberReader;
 import java.math.RoundingMode;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.text.DecimalFormat;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Scanner;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -25,7 +27,7 @@ public class App {
     private static String outputPath = "../Resources/outputs/";
     private static String workerMapTaskName = "Worker.jar";
     private static String outputAllReducedFileName = "all_reduced.txt";
-    private static int secondsTimeout = 20;
+    private static int secondsTimeout = 120;
     private static String inputFileName;
     private static int numberOfDistantComputers;
     private static int totalLineNumber;
@@ -37,6 +39,8 @@ public class App {
     private static CountDownLatch reduceCountdown;
 
     public static void main(String[] args) throws Exception { //enter input file name as first argument (it should be placed in ../Resources/inputs/)
+
+        inputFileName = args[0];
 
         numberOfDistantComputers = countLines(distantComputersList);
         splitDeploymentCountdown = new CountDownLatch(numberOfDistantComputers);
@@ -61,33 +65,38 @@ public class App {
             return;
         }
 
-        inputFileName = args[0];
 
-        FileReader reader = new FileReader(inputsPath+inputFileName);
-        Scanner scanner = new Scanner(reader);
 
-        List<FileWriter> listOfSplitFiles = new ArrayList<FileWriter>();
+        ProcessBuilder pb13 = new ProcessBuilder("gsplit","-n",""+numberOfDistantComputers,"-d","--additional-suffix",".txt",inputFileName,"../splits/S");
 
-        for (int i = 0; i < numberOfDistantComputers; i++) {
-            String outputFileName = "S"+String.valueOf(i)+".txt";
-            File file = new File(localSplitsPath+outputFileName);
-            file.createNewFile();
-            FileWriter writer = new FileWriter(file);
-            listOfSplitFiles.add(writer);
+        pb13.directory(new File(inputsPath));
+        Process p13 = pb13.start();
+
+        boolean timeoutStatus13 = p13.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+        if (!timeoutStatus13){
+            System.out.println("TIMEOUT 'gsplit'");
+            p13.destroy();
+            return;
+        } 
+
+        File dir = new File(localSplitsPath);
+        File[] directoryListing = dir.listFiles();
+        if (directoryListing != null) {
+            for (File child : directoryListing) {
+                String fileName = child.getName();
+                if (fileName.substring(0,2).equals("S0")){
+                    //System.out.println(fileName+" -> "+"S"+fileName.substring(2));
+                    Path path = Paths.get(localSplitsPath+fileName);
+                    Files.move(path, path.resolveSibling("S"+fileName.substring(2)));
+                }
+            }
+        } else {
+            System.out.println("--ERROR: renaming files");
+            return;
         }
 
-        int currentLineNumber = 0;
-        while(scanner.hasNextLine()){
-            listOfSplitFiles.get(currentLineNumber%numberOfDistantComputers).write(scanner.nextLine()+"\n");
-            currentLineNumber++;
-        }
-        totalLineNumber = currentLineNumber;
 
-        scanner.close();
-        reader.close();
-        for (int i = 0; i < numberOfDistantComputers; i++) {
-            listOfSplitFiles.get(i).close();
-        }
 
         System.out.println("DONE : Splitting      (local)");
 
@@ -228,7 +237,7 @@ public class App {
         }
 
         //waiting for all distant computers to finish the shuffle phase
-        boolean globalShuffleTimeoutStatus = shuffleCountdown.await(10*totalLineNumber*numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS); //TODO
+        boolean globalShuffleTimeoutStatus = shuffleCountdown.await(10*numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS); //TODO
         long elapsedShuffleTime = System.nanoTime() - startShuffleTime;
 
         long startReduceTime = System.nanoTime();   
