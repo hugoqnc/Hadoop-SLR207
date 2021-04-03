@@ -94,13 +94,18 @@ public class App {
             boolean timeoutStatus1 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
             if (timeoutStatus1){  
-                    System.out.println("  DONE : Cleaning     ("+hostname+")");
+                System.out.println("  DONE : Cleaning     ("+hostname+")");
+                cleanCount++;
             } else {
                 System.out.println("  TMOUT: Cleaning     ("+hostname+")");
                 p.destroy();
             }
         }
 
+        if(cleanCount!=numberOfDistantComputers){
+            System.out.println("TMOUT: Cleaning       (global)");
+            return;
+        }
         System.out.println("DONE : Cleaning       (global)");
 
 
