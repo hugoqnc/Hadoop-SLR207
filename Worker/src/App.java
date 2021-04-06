@@ -108,15 +108,15 @@ public class App {
                 String element = line.substring(0, line.indexOf(' ')); 
                 int hashCode = Math.abs(element.hashCode()); //positiv hash
 
-                if(!hashCodeList.contains(hashCode)){
-                    hashCodeList.add(hashCode);
-                }
-
                 String outputFileName = hashCode+"-"+java.net.InetAddress.getLocalHost().getHostName()+".txt";
                 File file = new File("shuffles/"+outputFileName);
-                file.createNewFile();
-                FileWriter writer = new FileWriter(file, true); // if the file already exists, appends text to the existing file
 
+                if(!hashCodeList.contains(hashCode)){
+                    hashCodeList.add(hashCode);
+                    file.createNewFile();
+                }
+
+                FileWriter writer = new FileWriter(file, true); // if the file already exists, appends text to the existing file
                 writer.write(line+"\n");
 
                 writer.flush();
@@ -141,24 +141,8 @@ public class App {
         mapOfProcesses = new HashMap<String,Process>();
         mapOfHashes = new HashMap<String,Process>();
 
-        FileReader fr = new FileReader(distantComputersList) ;
-        BufferedReader bu = new BufferedReader(fr) ;
-        Scanner sc = new Scanner(bu) ;
+        numberOfDistantComputers = countLines(distantComputersList);
 
-        //connecting test
-        System.out.println("START: Connection     (global)");
-
-        while(sc.hasNextLine()){
-            numberOfDistantComputers++;
-            String distantComputersListLine = sc.nextLine();
-            ProcessBuilder pb = new ProcessBuilder("ssh", username+"@"+distantComputersListLine, "hostname");
-            Process p = pb.start();
-            mapOfProcesses.put(distantComputersListLine, p);
-        }
-
-        sc.close();
-        bu.close();
-        fr.close();
 
         //mkdir
         System.out.println("START: Mkdir          (global)");
@@ -177,6 +161,7 @@ public class App {
             } else {
                 System.out.println("  TMOUT: Mkdir        ("+hostname+")");
                 p.destroy();
+                return -1;
             }
         }
         if(mkdirCount!=numberOfDistantComputers){
@@ -208,6 +193,7 @@ public class App {
             } else {
                 System.out.println("  TMOUT: 1Hash Deploy ("+hashFileName1+")");
                 p.destroy();
+                return -1;
             }
         }
         if(hashesDeploymentCount!=hashCodeList.size()){
@@ -250,13 +236,13 @@ public class App {
                         hash = Integer.parseInt(lineShuffleFileName.substring(0, lineShuffleFileName.indexOf("-")));
                     }
                     String reduceFileName = String.valueOf(hash)+".txt";
+                    File file = new File("reduces/"+reduceFileName);
 
                     if(!reduceHashCodeList.contains(hash)){
                         reduceHashCodeList.add(hash);
+                        file.createNewFile();
                     }
 
-                    File file = new File("reduces/"+reduceFileName);
-                    file.createNewFile();
                     FileWriter writer = new FileWriter(file, true); // if the file already exists, appends text to the existing file
                     
                     FileReader reader = new FileReader("shufflesreceived/"+lineShuffleFileName);
