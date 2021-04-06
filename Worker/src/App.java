@@ -8,7 +8,6 @@ import java.io.LineNumberReader;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 
@@ -20,12 +19,13 @@ public class App {
     private static String distantComputersList = "machines.txt";
     private static String distantPath = "/tmp/hugo";
     private static String outputAllReducedFileName = "all_reduced.txt";
-    private static int numberOfDistantComputers;
 
+    private static HashMap<String,Process> mapOfProcesses;
+    private static HashMap<String,Process> mapOfHashes;
+    private static int numberOfDistantComputers;
     private static List<Integer> hashCodeList = new ArrayList<Integer>();
     private static List<Integer> reduceHashCodeList = new ArrayList<Integer>();
-    private static CountDownLatch mkdirCountdown;
-    private static boolean hasTimedOut = false;
+    private static int mkdirCount;
 
     private static int secondsTimeout = 120;
     
@@ -138,118 +138,87 @@ public class App {
     private static int shuffle() throws Exception{
         System.out.println("STARTED");
 
-        numberOfDistantComputers = countLines(distantComputersList);
-
-        mkdirCountdown = new CountDownLatch(numberOfDistantComputers);
+        mapOfProcesses = new HashMap<String,Process>();
+        mapOfHashes = new HashMap<String,Process>();
 
         FileReader fr = new FileReader(distantComputersList) ;
         BufferedReader bu = new BufferedReader(fr) ;
         Scanner sc = new Scanner(bu) ;
 
+        //connecting test
+        System.out.println("START: Connection     (global)");
+
         while(sc.hasNextLine()){
+            numberOfDistantComputers++;
             String distantComputersListLine = sc.nextLine();
-            mkdirShufflesreceived(distantComputersListLine);         
+            ProcessBuilder pb = new ProcessBuilder("ssh", username+"@"+distantComputersListLine, "hostname");
+            Process p = pb.start();
+            mapOfProcesses.put(distantComputersListLine, p);
         }
+
         sc.close();
         bu.close();
         fr.close();
 
-        //waiting for all threads to create the shufflesreceived folder to distant computers
-        boolean mkdirTimeoutStatus = mkdirCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
+        //mkdir
+        System.out.println("START: Mkdir          (global)");
 
-        if (!mkdirTimeoutStatus){
-            System.out.println("TMO : Mkdir          (global)");
+        for (String hostname : mapOfProcesses.keySet()){
+            mkdir(hostname, distantPath+"/shufflesreceived");
         }
-        System.out.println("DISTANT MKDIR DONE");
+
+        for(String hostname : mapOfProcesses.keySet()){
+            Process p = mapOfProcesses.get(hostname);
+            boolean timeoutStatus1 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+            if (timeoutStatus1){
+                //System.out.println("  DONE : Mkdir        ("+hostname+")");
+                mkdirCount++;
+            } else {
+                System.out.println("  TMOUT: Mkdir        ("+hostname+")");
+                p.destroy();
+            }
+        }
+        if(mkdirCount!=numberOfDistantComputers){
+            System.out.println("TMOUT: Mkdir          (global)");
+            return -1;
+        }
+        System.out.println("DONE : Mkdir          (global)");
 
 
-        CountDownLatch hashesDeploymentCountdown = new CountDownLatch(hashCodeList.size());
-
-        hasTimedOut = false;
-
+        System.out.println("START: 1Hash Deploy   (global)");
+        int hashesDeploymentCount = 0;
 
         for (int hashCode : hashCodeList){
             String hashFileName = hashCode+"-"+java.net.InetAddress.getLocalHost().getHostName()+".txt";
             int computerID = hashCode%numberOfDistantComputers;
 
             String hostname = Files.readAllLines(Paths.get(distantComputersList)).get(computerID);
-        
-            new Thread() {
-                public void run() {
-
-                    try {
-                        ProcessBuilder pb2 = new ProcessBuilder("scp", "shuffles/"+hashFileName ,  username+"@"+hostname + ":"+distantPath+"/shufflesreceived");
-                        Process p2 = pb2.start();
-                
-                        boolean timeoutStatus2 = p2.waitFor(secondsTimeout, TimeUnit.SECONDS);
-            
-                        if (timeoutStatus2){
-                            System.out.println("  DONE: 1Hash Deploy ("+hostname+")");
-                            hashesDeploymentCountdown.countDown();
-            
-                        } else {
-                            System.out.println("  TMO : 1Hash Deploy ("+hostname+")");
-                            p2.destroy();
-                            hasTimedOut = true;
-
-                            while(hashesDeploymentCountdown.getCount()>0) {
-                                hashesDeploymentCountdown.countDown();
-                            }
-                        }
-                        interrupt();
-                    
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-
-                }
-            }.start();
-
+            sendShuffles(hostname, hashFileName);
         }
 
-        //waiting for all threads to send hashes to distant computers
-        boolean globalHashesTimeoutStatus = hashesDeploymentCountdown.await(hashCodeList.size()*secondsTimeout, TimeUnit.SECONDS);
+    
+        for(String hashFileName1 : mapOfHashes.keySet()){
+            Process p = mapOfHashes.get(hashFileName1);
+            boolean timeoutStatus1 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
-        if (globalHashesTimeoutStatus && !hasTimedOut){
-            System.out.println("SHUFFLE & HASH DEPLOY DONE");
-            return 0;
-
-        } else {
-            System.out.println("TIMEOUT SHUFFLE & HASH DEPLOY");
+            if (timeoutStatus1){
+                //System.out.println("  DONE: 1Hash Deploy ("+hashFileName1+")");
+                hashesDeploymentCount++;
+            } else {
+                System.out.println("  TMOUT: 1Hash Deploy ("+hashFileName1+")");
+                p.destroy();
+            }
+        }
+        if(hashesDeploymentCount!=hashCodeList.size()){
+            System.out.println("TMOUT: Mkdir          (global)");
             return -1;
         }
+        System.out.println("DONE: 1Hash Deploy   (global)");
+
+        return 0;
     }
 
-    private static void mkdirShufflesreceived(String hostname) throws Exception{
-        
-        new Thread() {
-            public void run() {
-
-                ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "mkdir "+distantPath+"/shufflesreceived");
-                Process p1;
-
-                try {
-                    p1 = pb1.start();
-
-                    boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
-
-                    if (timeoutStatus1){
-                        System.out.println("  DONE: Mkdir        ("+hostname+")");
-                        mkdirCountdown.countDown();
-
-                    } else {
-                        System.out.println("  TMO : Mkdir        ("+hostname+")");
-                        p1.destroy();
-                    }
-                    interrupt();
-                
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }.start();
-
-    }
 
     private static void reduce() throws Exception{
         System.out.println("STARTED");
@@ -445,7 +414,17 @@ public class App {
 
     }
 
+    private static void mkdir(String hostname, String directoryName) throws Exception{
+        ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "mkdir " + directoryName);
+        Process p1 = pb1.start();
+        mapOfProcesses.put(hostname, p1);
+    }
 
+    private static void sendShuffles(String hostname, String hashFileName) throws Exception {
+        ProcessBuilder pb2 = new ProcessBuilder("scp", "shuffles/"+hashFileName ,  username+"@"+hostname + ":"+distantPath+"/shufflesreceived");
+        Process p2 = pb2.start();
+        mapOfHashes.put(hashFileName, p2);
+    }
 
     private static int countLines(String fileName) throws Exception {
         FileReader fileReader = new FileReader(fileName);

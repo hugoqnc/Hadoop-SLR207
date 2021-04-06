@@ -409,7 +409,7 @@ public class App {
             
             while ((eLine = ber.readLine()) != null){
                 System.out.println(eLine);
-                if(line=="TIMEOUT SHUFFLE"){
+                if(eLine.equals("TIMEOUT SHUFFLE")){
                     hasTimedOut = true;
                 }
             }
