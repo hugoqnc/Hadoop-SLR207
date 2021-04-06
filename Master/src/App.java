@@ -10,10 +10,9 @@ import java.math.RoundingMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.text.DecimalFormat;
+import java.util.HashMap;
 import java.util.Scanner;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 
@@ -28,39 +27,50 @@ public class App {
     private static String workerMapTaskName = "Worker.jar";
     private static String outputAllReducedFileName = "all_reduced.txt";
     private static int secondsTimeout = 120;
-    private static String inputFileName;
-    private static int numberOfDistantComputers;
-    private static int totalLineNumber;
+    private static boolean verbose = true; //if true, shows DONE status for each individual distant computer
 
-    private static CountDownLatch splitDeploymentCountdown;
-    private static CountDownLatch mapCountdown;
-    private static CountDownLatch scpComputersCountdown;
-    private static CountDownLatch shuffleCountdown;
-    private static CountDownLatch reduceCountdown;
+    private static String inputFileName;
+    private static HashMap<String,Process> mapOfProcesses;
+    private static HashMap<String,Integer> mapOfSplitNumbers;
+    private static int numberOfDistantComputers;
+    
+    private static int connectionCount = 0;
+    private static int mkdirCount = 0;
+    private static int splitDeploymentCount = 0;
+    private static int mapCount = 0;
+    private static int scpComputersCount = 0;
+    private static int shuffleCount = 0;
+    private static int reduceCount = 0;
 
     public static void main(String[] args) throws Exception { //enter input file name as first argument (it should be placed in ../Resources/inputs/)
 
         inputFileName = args[0];
+        mapOfProcesses = new HashMap<String,Process>();
+        mapOfSplitNumbers = new HashMap<String,Integer>();
 
         numberOfDistantComputers = countLines(distantComputersList);
-        splitDeploymentCountdown = new CountDownLatch(numberOfDistantComputers);
-        mapCountdown = new CountDownLatch(numberOfDistantComputers);
-        scpComputersCountdown = new CountDownLatch(numberOfDistantComputers);
-        shuffleCountdown = new CountDownLatch(numberOfDistantComputers);
-        reduceCountdown = new CountDownLatch(numberOfDistantComputers);
 
         DecimalFormat df = new DecimalFormat("#.#"); //for time measurement
         df.setRoundingMode(RoundingMode.CEILING);
 
         System.out.println("START: Splitting      (local)");
 
+        ProcessBuilder pb0 = new ProcessBuilder("rm","-rf",localSplitsPath);
+        Process p0 = pb0.start();
+        boolean timeoutStatus0 = p0.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+        if (!timeoutStatus0){
+            System.out.println("TMOUT: 'rm -rf'");
+            p0.destroy();
+            return;
+        }
+
         ProcessBuilder pb1 = new ProcessBuilder("mkdir",localSplitsPath);
         Process p1 = pb1.start();
-
         boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
         if (!timeoutStatus1){
-            System.out.println("TIMEOUT 'mkdir'");
+            System.out.println("TMOUT: 'mkdir'");
             p1.destroy();
             return;
         }
@@ -75,7 +85,7 @@ public class App {
         boolean timeoutStatus13 = p13.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
         if (!timeoutStatus13){
-            System.out.println("TIMEOUT 'gsplit'");
+            System.out.println("TMOUT: 'gsplit'");
             p13.destroy();
             return;
         } 
@@ -96,22 +106,32 @@ public class App {
             return;
         }
 
-
-
         System.out.println("DONE : Splitting      (local)");
 
-        System.out.println("START: Split Deploy   (global)");
+
+        //connecting test
+        System.out.println("START: Connection     (global)");
 
         FileReader fr = new FileReader(distantComputersList) ;
         BufferedReader bu = new BufferedReader(fr) ;
         Scanner sc = new Scanner(bu) ;
-        int computerIndex = 0;
 
+        int i = 0;
         while(sc.hasNextLine()){
             String distantComputersListLine = sc.nextLine();
             ProcessBuilder pb = new ProcessBuilder("ssh", username+"@"+distantComputersListLine, "hostname");
             Process p = pb.start();
+            mapOfProcesses.put(distantComputersListLine, p);
+            mapOfSplitNumbers.put(distantComputersListLine, i);
+            i++;
+        }
 
+        sc.close();
+        bu.close();
+        fr.close();
+
+        for(String hostname : mapOfProcesses.keySet()){
+            Process p = mapOfProcesses.get(hostname);
             boolean timeoutStatus = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
     
             if (timeoutStatus){
@@ -122,9 +142,8 @@ public class App {
                 boolean e = false; //error?
     
                 while ((line = br.readLine()) != null){
-                    System.out.println("  DONE : Connection   ("+ line +")");
+                    if(verbose) System.out.println("  DONE : Connection   ("+ line +")");
                 }
-
                 InputStream es = p.getErrorStream();
                 BufferedReader ber = new BufferedReader(new InputStreamReader(es));
                 String eLine;
@@ -133,153 +152,201 @@ public class App {
                     System.out.println("--ERROR: Connection - "+ eLine);
                     e = true;
                 }
-
                 br.close();
                 is.close();
                 ber.close();
                 es.close();
 
-                if (!e) {deploySplit(distantComputersListLine, computerIndex);}                
+                if (!e) {connectionCount++;}
 
             } else {
-                System.out.println("  TMOUT: Connection   ("+distantComputersListLine+")");
+                System.out.println("  TMOUT: Connection   ("+hostname+")");
                 p.destroy();
             }
-            computerIndex++;
         }
-        sc.close();
-        bu.close();
-        fr.close();
+        if(connectionCount!=numberOfDistantComputers){
+            System.out.println("TMOUT: Connection     (global)");
+            return;
+        }
+        System.out.println("DONE : Connection     (global)");
 
 
-        //waiting for all threads to send splits to distant computers
-        boolean globalSplitTimeoutStatus = splitDeploymentCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
+        //mkdir split
+        System.out.println("START: Mkdir          (global)");
 
-        long startMapTime = System.nanoTime();   
+        for (String hostname : mapOfProcesses.keySet()){
+            mkdir(hostname, distantPath+"/splits");
+        }
 
-        if (globalSplitTimeoutStatus){
-            System.out.println("DONE : Split Deploy   (global)");
-            System.out.println("START: Map Compute    (global)");
+        for(String hostname : mapOfProcesses.keySet()){
+            Process p = mapOfProcesses.get(hostname);
+            boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
-            FileReader fr2 = new FileReader(distantComputersList) ;
-            BufferedReader bu2 = new BufferedReader(fr2) ;
-            Scanner sc2 = new Scanner(bu2) ;
-            int computerIndex2 = 0;
-
-            while(sc2.hasNextLine()){
-                String distantComputersListLine = sc2.nextLine();
-                computeMap(distantComputersListLine, computerIndex2);         
-                computerIndex2++;
+            if (timeoutStatus2){
+                if(verbose) System.out.println("  DONE : Mkdir        ("+hostname+")");
+                mkdirCount++;
+            } else {
+                System.out.println("  TMOUT: Mkdir        ("+hostname+")");
+                p.destroy();
             }
-            sc2.close();
-            bu2.close();
-            fr2.close();
+        }
 
-        } else {
+        if(mkdirCount!=numberOfDistantComputers){
+            System.out.println("TMOUT: Mkdir          (global)");
+            return;
+        }
+        System.out.println("DONE : Mkdir          (global)");
+
+
+        
+
+        //split deploy
+        System.out.println("START: Split Deploy   (global)");
+
+        for (String hostname : mapOfProcesses.keySet()){
+            deploySplit(hostname, mapOfSplitNumbers.get(hostname));
+        }
+
+        for(String hostname : mapOfProcesses.keySet()){
+            Process p = mapOfProcesses.get(hostname);
+            boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
+            if (timeoutStatus2){
+                if (verbose) System.out.println("  DONE : Split Deploy ("+hostname+")");
+                splitDeploymentCount++;
+
+            } else {
+                System.out.println("  TMOUT: Split Deploy ("+hostname+")");
+                p.destroy();
+            }
+        }
+        if(splitDeploymentCount!=numberOfDistantComputers){
             System.out.println("TMOUT: Split Deploy   (global)");
             return;
         }
 
-
-        //waiting for all distant computers to finish the map phase
-        boolean globalMapTimeoutStatus = mapCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
-        long elapsedMapTime = System.nanoTime() - startMapTime;
-
-        if (globalMapTimeoutStatus){
-            System.out.println("DONE : Map Compute    (global)      | "+ df.format(elapsedMapTime/1000000000.) + " s");
-            System.out.println("START: List Deploy    (global)");
+        System.out.println("DONE : Split Deploy   (global)");
 
 
-            FileReader fr3 = new FileReader(distantComputersList) ;
-            BufferedReader bu3 = new BufferedReader(fr3) ;
-            Scanner sc3 = new Scanner(bu3) ;
+        //map computation
+        long startMapTime = System.nanoTime();
+        System.out.println("START: Map Compute    (global)");
 
-            while(sc3.hasNextLine()){
-                String distantComputersListLine = sc3.nextLine();
-                deployDistantComputersList(distantComputersListLine);         
+        for (String hostname : mapOfProcesses.keySet()){
+            computeMap(hostname, mapOfSplitNumbers.get(hostname));        }
+
+        for(String hostname : mapOfProcesses.keySet()){
+            Process p = mapOfProcesses.get(hostname);
+            boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+            if (timeoutStatus2){
+                if(verbose) System.out.println("  DONE : Map Compute  ("+hostname+")");
+                mapCount++;
+            } else {
+                System.out.println("  TMOUT: Map Compute  ("+hostname+")");
+                p.destroy();
             }
-            sc3.close();
-            bu3.close();
-            fr3.close();
+        }
 
-        } else {
+        if(mapCount!=numberOfDistantComputers){
             System.out.println("TMOUT: Map Compute    (global)");
             return;
         }
-
-        //waiting for all distant computers to receive the list of distant computers
-        boolean globalScpTimeoutStatus = scpComputersCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
-
-        long startShuffleTime = System.nanoTime();   
-
-        if (globalScpTimeoutStatus){
-            System.out.println("DONE : List Deploy    (global)");
-            System.out.println("START: Shuffle        (global)");
+        long elapsedMapTime = System.nanoTime() - startMapTime;
+        System.out.println("DONE : Map Compute    (global)      | "+ df.format(elapsedMapTime/1000000000.) + " s");
 
 
-            FileReader fr4 = new FileReader(distantComputersList) ;
-            BufferedReader bu4 = new BufferedReader(fr4) ;
-            Scanner sc4 = new Scanner(bu4) ;
-            int computerIndex4 = 0;
 
-            while(sc4.hasNextLine()){
-                String distantComputersListLine = sc4.nextLine();
-                computeShuffle(distantComputersListLine, computerIndex4);         
-                computerIndex4++;
+        //deploy distant computer list
+        System.out.println("START: List Deploy    (global)");
+
+        for (String hostname : mapOfProcesses.keySet()){
+            deployDistantComputersList(hostname);         
+        }
+
+        for(String hostname : mapOfProcesses.keySet()){
+            Process p = mapOfProcesses.get(hostname);
+            boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
+            if (timeoutStatus2){
+                if (verbose) System.out.println("  DONE : List Deploy  ("+hostname+")");
+                scpComputersCount++;
+
+            } else {
+                System.out.println("  TMOUT: List Deploy  ("+hostname+")");
+                p.destroy();
             }
-            sc4.close();
-            bu4.close();
-            fr4.close();
-
-        } else {
+        }
+        if(scpComputersCount!=numberOfDistantComputers){
             System.out.println("TMOUT: List Deploy    (global)");
             return;
         }
 
-        //waiting for all distant computers to finish the shuffle phase
-        boolean globalShuffleTimeoutStatus = shuffleCountdown.await(10*numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS); //TODO
-        long elapsedShuffleTime = System.nanoTime() - startShuffleTime;
-
-        long startReduceTime = System.nanoTime();   
-
-        if (globalShuffleTimeoutStatus){
-            System.out.println("DONE : Shuffle        (global)      | "+ df.format(elapsedShuffleTime/1000000000.) + " s");
-            System.out.println("START: Reduce         (global)");
+        System.out.println("DONE : List Deploy    (global)");
 
 
-            FileReader fr5 = new FileReader(distantComputersList) ;
-            BufferedReader bu5 = new BufferedReader(fr5) ;
-            Scanner sc5 = new Scanner(bu5) ;
-            while(sc5.hasNextLine()){
-                String distantComputersListLine = sc5.nextLine();
-                computeReduce(distantComputersListLine);         
+
+        //shuffle
+        long startShuffleTime = System.nanoTime();   
+        System.out.println("START: Shuffle        (global)");
+
+        for (String hostname : mapOfProcesses.keySet()){
+            computeShuffle(hostname, mapOfSplitNumbers.get(hostname));
+        }
+
+        for(String hostname : mapOfProcesses.keySet()){
+            Process p = mapOfProcesses.get(hostname);
+            boolean hasTimedOut = computeShuffleStatus(p);
+            boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
+            if (timeoutStatus2 && !hasTimedOut){
+                if (verbose) System.out.println("  DONE : Shuffle      ("+hostname+")");
+                shuffleCount++;
+
+            } else {
+                System.out.println("  TMOUT: Shuffle      ("+hostname+")");
+                p.destroy();
             }
-            sc5.close();
-            bu5.close();
-            fr5.close();
-
-        } else {
+        }
+        if(shuffleCount!=numberOfDistantComputers){
             System.out.println("TMOUT: Shuffle        (global)");
             return;
         }
+        long elapsedShuffleTime = System.nanoTime() - startShuffleTime;
+        System.out.println("DONE : Shuffle        (global)      | "+ df.format(elapsedShuffleTime/1000000000.) + " s");
 
-        //waiting for all distant computers to finish the shuffle phase
-        boolean globalReduceTimeoutStatus = reduceCountdown.await(numberOfDistantComputers*secondsTimeout, TimeUnit.SECONDS);
-        long elapsedReduceTime = System.nanoTime() - startReduceTime;
 
-        boolean successfulGatherReduces;
+        //reduce
+        long startReduceTime = System.nanoTime();   
+        System.out.println("START: Reduce         (global)");
 
-        if (globalReduceTimeoutStatus){
-            System.out.println("DONE : Reduce         (global)      | "+ df.format(elapsedReduceTime/1000000000.) + " s");
-            System.out.println("START: Gather Reduce  (global)");
+        for (String hostname : mapOfProcesses.keySet()){
+            computeReduce(hostname);
+        }
 
-            successfulGatherReduces = gatherReduces();
-        } else {
+        for(String hostname : mapOfProcesses.keySet()){
+            Process p = mapOfProcesses.get(hostname);
+            boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
+            if (timeoutStatus2){
+                if (verbose) System.out.println("  DONE : Reduce       ("+hostname+")");
+                reduceCount++;
+
+            } else {
+                System.out.println("  TMOUT: Reduce       ("+hostname+")");
+                p.destroy();
+            }
+        }
+        if(reduceCount!=numberOfDistantComputers){
             System.out.println("TMOUT: Reduce         (global)");
             return;
         }
+        long elapsedReduceTime = System.nanoTime() - startReduceTime;
+        System.out.println("DONE : Reduce         (global)      | "+ df.format(elapsedReduceTime/1000000000.) + " s");
 
-        //waiting for gathering reduces 
+
+
+        //gather reduce
+        System.out.println("START: Gather Reduce  (global)");
+        boolean successfulGatherReduces = gatherReduces();
+
         if (successfulGatherReduces){
             System.out.println("DONE : Gather Reduce  (global)");
 
@@ -288,194 +355,76 @@ public class App {
             return;
         }
 
-    
+    }
+
+    private static void mkdir(String hostname, String directoryName) throws Exception{
+        ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "mkdir " + directoryName);
+        Process p1 = pb1.start();
+        mapOfProcesses.replace(hostname, p1);
     }
     
 
     private static void deploySplit(String hostname, int splitNumber) throws Exception {
-
-        new Thread() {
-            public void run() {
-
-                ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "mkdir "+distantPath+"/splits");
-                Process p1;
-
-                try {
-                    p1 = pb1.start();
-
-                    boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
-
-                    if (timeoutStatus1){
-                        ProcessBuilder pb2 = new ProcessBuilder("scp", localSplitsPath+"S"+splitNumber+".txt" ,  username+"@"+hostname + ":"+distantPath+"/splits");
-                        Process p2 = pb2.start();
-                
-                        boolean timeoutStatus2 = p2.waitFor(secondsTimeout, TimeUnit.SECONDS);
-            
-                        if (timeoutStatus2){
-                            System.out.println("  DONE : Split Deploy ("+hostname+")");
-                            splitDeploymentCountdown.countDown();
-            
-                        } else {
-                            System.out.println("  TMOUT: Split Deploy ("+hostname+")");
-                            p2.destroy();
-                        }
-            
-                    } else {
-                        System.out.println("  TMOUT: Mkdir        ("+hostname+")");
-                        p1.destroy();
-                    }
-                
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }.start();
-
+        ProcessBuilder pb1 = new ProcessBuilder("scp", localSplitsPath+"S"+splitNumber+".txt" ,  username+"@"+hostname + ":"+distantPath+"/splits");
+        Process p1 = pb1.start();
+        mapOfProcesses.replace(hostname, p1);       
     }
 
 
     private static void computeMap(String hostname, int splitNumber) throws Exception{
-
-        new Thread() {
-            public void run() {
-
-                ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "cd "+distantPath+"; java -jar "+workerMapTaskName+" 0 S"+splitNumber+".txt");
-                Process p1;
-
-                try {
-                    p1 = pb1.start();
-
-                    boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
-
-                    if (timeoutStatus1){
-                        System.out.println("  DONE : Map Compute  ("+hostname+")");
-                        mapCountdown.countDown();
-
-                    } else {
-                        System.out.println("  TMOUT: Map Compute  ("+hostname+")");
-                        p1.destroy();
-                    }
-                
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }.start();
-
+        ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "cd "+distantPath+"; java -jar "+workerMapTaskName+" 0 S"+splitNumber+".txt");
+        Process p1 = pb1.start();
+        mapOfProcesses.replace(hostname, p1);       
     }
 
 
     private static void deployDistantComputersList(String hostname) throws Exception{
-
-        new Thread() {
-            public void run() {
-
-                ProcessBuilder pb1 = new ProcessBuilder("scp", distantComputersList ,  username+"@"+hostname + ":"+distantPath);
-                Process p1;
-
-                try {
-                    p1 = pb1.start();
-
-                    boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
-
-                    if (timeoutStatus1){
-                        System.out.println("  DONE : List Deploy  ("+hostname+")");
-                        scpComputersCountdown.countDown();
-
-                    } else {
-                        System.out.println("  TMOUT: List Deploy  ("+hostname+")");
-                        p1.destroy();
-                    }
-                
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }.start();
-
+        ProcessBuilder pb1 = new ProcessBuilder("scp", distantComputersList ,  username+"@"+hostname + ":"+distantPath);
+        Process p1 = pb1.start();
+        mapOfProcesses.replace(hostname, p1);       
     }
 
 
-    private static void computeShuffle(String hostname, int splitNumber) throws Exception{
+    private static void computeShuffle(String hostname, int splitNumber) throws Exception{ //return true if it timed out
+        ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "cd "+distantPath+"; java -jar "+workerMapTaskName+" 1 UM"+splitNumber+".txt");
+        Process p1 = pb1.start();
+        mapOfProcesses.replace(hostname, p1);   
+    }
 
-        new Thread() {
-            public void run() {
+    private static boolean computeShuffleStatus(Process p) throws Exception{
+        boolean hasTimedOut = false;
 
-                ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "cd "+distantPath+"; java -jar "+workerMapTaskName+" 1 UM"+splitNumber+".txt");
-                Process p1;
+        try{
+            InputStream is = p.getInputStream();
+            BufferedReader br = new BufferedReader(new InputStreamReader(is));
+            String line;
 
-                try {
-                    p1 = pb1.start();
-
-                    InputStream is = p1.getInputStream();
-                    BufferedReader br = new BufferedReader(new InputStreamReader(is));
-                    String line;
+            while ((line = br.readLine()) != null){ //to empty the worker buffer, we need to read it 
+                //System.out.println(line); //DEBUG
+            }
             
-                    while ((line = br.readLine()) != null){ //to empty the worker buffer, we need to read it 
-                        //System.out.println(line); //DEBUG
-                    }
-                    
-                    boolean hasTimedOut = false;
-                    InputStream es = p1.getErrorStream();
-                    BufferedReader ber = new BufferedReader(new InputStreamReader(es));
-                    String eLine;
-                    
-                    while ((eLine = ber.readLine()) != null){
-                        System.out.println(eLine);
-                        if(line=="TIMEOUT SHUFFLE"){
-                            hasTimedOut = true;
-                        }
-                    }
-                    
-
-                    boolean timeoutStatus1 = p1.waitFor(3*secondsTimeout, TimeUnit.SECONDS); //TODO
-
-
-                    if (timeoutStatus1 && !hasTimedOut){
-                        System.out.println("  DONE : Shuffle      ("+hostname+")");
-                        shuffleCountdown.countDown();
-
-                    } else {
-                        System.out.println("  TMOUT: Shuffle      ("+hostname+")");
-                        p1.destroy();
-                    }
-                
-                } catch (Exception e) {
-                    e.printStackTrace();
+            InputStream es = p.getErrorStream();
+            BufferedReader ber = new BufferedReader(new InputStreamReader(es));
+            String eLine;
+            
+            while ((eLine = ber.readLine()) != null){
+                System.out.println(eLine);
+                if(line=="TIMEOUT SHUFFLE"){
+                    hasTimedOut = true;
                 }
             }
-        }.start();
+    
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
+        return hasTimedOut;
     }
 
     private static void computeReduce(String hostname) throws Exception{
-
-        new Thread() {
-            public void run() {
-
-                ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "cd "+distantPath+"; java -jar "+workerMapTaskName+" 2");
-                Process p1;
-
-                try {
-                    p1 = pb1.start();
-
-                    boolean timeoutStatus1 = p1.waitFor(secondsTimeout, TimeUnit.SECONDS);
-
-                    if (timeoutStatus1){
-                        System.out.println("  DONE : Reduce       ("+hostname+")");
-                        reduceCountdown.countDown();
-
-                    } else {
-                        System.out.println("  TMOUT: Reduce       ("+hostname+")");
-                        p1.destroy();
-                    }
-                
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }.start();
-
+        ProcessBuilder pb1 = new ProcessBuilder("ssh", username+"@"+hostname, "cd "+distantPath+"; java -jar "+workerMapTaskName+" 2");
+        Process p1 = pb1.start();
+        mapOfProcesses.replace(hostname, p1);
     }
 
     private static boolean gatherReduces() throws Exception {
