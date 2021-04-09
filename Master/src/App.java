@@ -290,9 +290,9 @@ public class App {
 
         for (String hostname : mapOfProcesses.keySet()){
             computeShuffle(hostname, mapOfSplitNumbers.get(hostname));
-        }
+/*         }
 
-        for(String hostname : mapOfProcesses.keySet()){
+        for(String hostname : mapOfProcesses.keySet()){ */
             Process p = mapOfProcesses.get(hostname);
             boolean hasTimedOut = computeShuffleStatus(p);
             boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
@@ -483,7 +483,7 @@ public class App {
                 
             }
             
-            System.out.println("  DONE : Gather Red   ("+distantComputersListLine+")");
+            if (verbose) System.out.println("  DONE : Gather Red   ("+distantComputersListLine+")");
         }
 
         sc.close();

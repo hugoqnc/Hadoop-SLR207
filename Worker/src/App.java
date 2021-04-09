@@ -25,7 +25,7 @@ public class App {
     private static int numberOfDistantComputers;
     private static List<Integer> hashCodeList = new ArrayList<Integer>();
     private static List<Integer> reduceHashCodeList = new ArrayList<Integer>();
-    private static int mkdirCount;
+    private static int mkdirCount = 0;
 
     private static int secondsTimeout = 120;
     
@@ -143,20 +143,28 @@ public class App {
 
         numberOfDistantComputers = countLines(distantComputersList);
 
-
         //mkdir
         System.out.println("START: Mkdir          (global)");
 
-        for (String hostname : mapOfProcesses.keySet()){
-            mkdir(hostname, distantPath+"/shufflesreceived");
+        FileReader fr = new FileReader(distantComputersList) ;
+        BufferedReader bu = new BufferedReader(fr) ;
+        Scanner sc = new Scanner(bu) ;
+
+        while(sc.hasNextLine()){
+            String distantComputersListLine = sc.nextLine();
+            mkdir(distantComputersListLine, distantPath+"/shufflesreceived");
         }
+
+        sc.close();
+        bu.close();
+        fr.close();
 
         for(String hostname : mapOfProcesses.keySet()){
             Process p = mapOfProcesses.get(hostname);
             boolean timeoutStatus1 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
             if (timeoutStatus1){
-                //System.out.println("  DONE : Mkdir        ("+hostname+")");
+                System.out.println("  DONE : Mkdir        ("+hostname+")");
                 mkdirCount++;
             } else {
                 System.out.println("  TMOUT: Mkdir        ("+hostname+")");
@@ -165,12 +173,12 @@ public class App {
             }
         }
         if(mkdirCount!=numberOfDistantComputers){
-            System.out.println("TMOUT: Mkdir          (global)");
+            System.out.println("TMOUT: Mkdir          (global) "+numberOfDistantComputers+" vs "+mkdirCount);
             return -1;
         }
         System.out.println("DONE : Mkdir          (global)");
 
-
+        // send hashes
         System.out.println("START: 1Hash Deploy   (global)");
         int hashesDeploymentCount = 0;
 
@@ -187,6 +195,20 @@ public class App {
             Process p = mapOfHashes.get(hashFileName1);
             boolean timeoutStatus1 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
+            InputStream es = p.getErrorStream();
+            BufferedReader ber = new BufferedReader(new InputStreamReader(es));
+            String eLine;
+            
+            int hash = Integer.parseInt(hashFileName1.substring(0, hashFileName1.indexOf("-")));
+            int computerID = hash%numberOfDistantComputers;
+            String hostname = Files.readAllLines(Paths.get(distantComputersList)).get(computerID);
+
+            while ((eLine = ber.readLine()) != null){
+                System.err.println("--ERROR: shuffle scp "+java.net.InetAddress.getLocalHost().getHostName()+" -> "+hostname+" - "+ eLine);
+            }
+            ber.close();
+            es.close();
+
             if (timeoutStatus1){
                 //System.out.println("  DONE: 1Hash Deploy ("+hashFileName1+")");
                 hashesDeploymentCount++;
@@ -197,7 +219,7 @@ public class App {
             }
         }
         if(hashesDeploymentCount!=hashCodeList.size()){
-            System.out.println("TMOUT: Mkdir          (global)");
+            System.err.println("TMOUT: Mkdir          (global)");
             return -1;
         }
         System.out.println("DONE: 1Hash Deploy   (global)");
