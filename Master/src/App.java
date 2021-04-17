@@ -290,9 +290,9 @@ public class App {
 
         for (String hostname : mapOfProcesses.keySet()){
             computeShuffle(hostname, mapOfSplitNumbers.get(hostname));
-/*         }
+        }
 
-        for(String hostname : mapOfProcesses.keySet()){ */
+        for(String hostname : mapOfProcesses.keySet()){
             Process p = mapOfProcesses.get(hostname);
             boolean hasTimedOut = computeShuffleStatus(p);
             boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
@@ -458,20 +458,22 @@ public class App {
             ProcessBuilder pb3= new ProcessBuilder("ssh", username+"@"+distantComputersListLine,"; cd "+distantPath,"; cat",outputAllReducedFileName); 
             Process p3 = pb3.start();
 
+            InputStream is3 = p3.getInputStream();
+            BufferedReader br3 = new BufferedReader(new InputStreamReader(is3));
+            String lineCurrentReduce;
+
+            while ((lineCurrentReduce = br3.readLine()) != null){
+                writer.write(lineCurrentReduce+"\n");
+            }
+
+            writer.flush();
+            br3.close();
+            is3.close();
+            
             boolean timeoutStatus3 = p3.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
             if(timeoutStatus3){
-                InputStream is3 = p3.getInputStream();
-                BufferedReader br3 = new BufferedReader(new InputStreamReader(is3));
-                String lineCurrentReduce;
 
-                while ((lineCurrentReduce = br3.readLine()) != null){
-                    writer.write(lineCurrentReduce+"\n");
-                }
-
-                writer.flush();
-                br3.close();
-                is3.close();
 
             } else {
                 System.out.println("  TMOUT: Gather Red   ("+distantComputersListLine+")");

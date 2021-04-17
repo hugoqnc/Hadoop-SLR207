@@ -10,7 +10,7 @@ public class App {
 
     private static String username = "hqueinnec";
     private static String distantComputersList = "../Resources/machines.txt";
-    private static String WorkerFileName = "../Resources/Worker.jar";
+    private static String workerFileName = "../Worker/Worker.jar";
     private static String distantPath = "/tmp/hugo";
     private static int secondsTimeout = 10;
     private static boolean verbose = false; //if true, shows DONE status for each individual distant computer
@@ -148,7 +148,7 @@ public class App {
     }
 
     private static void deploy(String hostname) throws Exception {
-        ProcessBuilder pb2 = new ProcessBuilder("scp", WorkerFileName ,  username+"@"+hostname + ":"+distantPath);
+        ProcessBuilder pb2 = new ProcessBuilder("scp", workerFileName ,  username+"@"+hostname + ":"+distantPath);
         Process p2 = pb2.start();
         mapOfProcesses.replace(hostname, p2);
     }

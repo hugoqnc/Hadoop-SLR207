@@ -9,6 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 
 public class App {
@@ -252,7 +254,11 @@ public class App {
         System.out.println("START: 1Hash Deploy   (global)");
         int hashesDeploymentCount = 0;
 
-        for (int folderID = 0; folderID < numberOfDistantComputers; folderID++) {
+        List<Integer> range = IntStream.rangeClosed(0, numberOfDistantComputers-1).boxed().collect(Collectors.toList());
+        Collections.shuffle(range); //shuffle indexes to reduce the number of simultaneous scp connections (that are limited to 10)
+        System.err.println(java.net.InetAddress.getLocalHost().getHostName()+" : "+range);
+
+        for (int folderID : range) {
             String hostname = Files.readAllLines(Paths.get(distantComputersList)).get(folderID);
             sendShuffles(hostname, "shuffles/shuffles_"+folderID);
         }
@@ -306,11 +312,9 @@ public class App {
         if (timeoutStatus1){
 
             String[] pathnames;
-
             File f = new File("shufflesreceived/"+subFolder);
             pathnames = f.list();
-    
-            // For each pathname in the pathnames array
+   
             for (String pathname : pathnames) {
 
                 int hash;
@@ -385,72 +389,41 @@ public class App {
         BufferedReader bu = new BufferedReader(fr) ;
         Scanner sc = new Scanner(bu) ;
 
-        ProcessBuilder pb2 = new ProcessBuilder("ls","-1","reduces"); //-1 gives one output per line
-        Process p2 = pb2.start();
 
-        boolean timeoutStatus2 = p2.waitFor(secondsTimeout, TimeUnit.SECONDS);
+        String[] pathnames;
+        File f = new File("reduces/");
+        pathnames = f.list();
 
-        if (timeoutStatus2){
-            InputStream is = p2.getInputStream();
-            BufferedReader br = new BufferedReader(new InputStreamReader(is));
-            String lineReduceFileName;
+        for (String pathname : pathnames) {
 
-            while ((lineReduceFileName = br.readLine()) != null){
+            ProcessBuilder pb3= new ProcessBuilder("cat","reduces/"+pathname); //-1 gives one output per line
+            Process p3 = pb3.start();
 
-                ProcessBuilder pb3= new ProcessBuilder("cat","reduces/"+lineReduceFileName); //-1 gives one output per line
-                Process p3 = pb3.start();
+            boolean timeoutStatus3 = p3.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
-                boolean timeoutStatus3 = p3.waitFor(secondsTimeout, TimeUnit.SECONDS);
+            if(timeoutStatus3){
+                InputStream is3 = p3.getInputStream();
+                BufferedReader br3 = new BufferedReader(new InputStreamReader(is3));
+                String lineCurrentReduce;
 
-                if(timeoutStatus3){
-                    InputStream is3 = p3.getInputStream();
-                    BufferedReader br3 = new BufferedReader(new InputStreamReader(is3));
-                    String lineCurrentReduce;
-
-                    while ((lineCurrentReduce = br3.readLine()) != null){
-                        writer.write(lineCurrentReduce+"\n");
-                    }
-
-                    writer.flush();
-                    br3.close();
-                    is3.close();
-
-                } else {
-                    System.out.println("  TMO : Gather Reduces");
-                    p3.destroy();
-                    br.close();
-                    is.close();
-                    return false;
-                    
+                while ((lineCurrentReduce = br3.readLine()) != null){
+                    writer.write(lineCurrentReduce+"\n");
                 }
-                
-            }
 
-            InputStream es = p2.getErrorStream();
-            BufferedReader ber = new BufferedReader(new InputStreamReader(es));
-            String eLine;
-            
-            while ((eLine = ber.readLine()) != null){
-                System.out.println("--ERROR: ls - "+ eLine);
-                br.close();
-                is.close();
-                ber.close();
-                es.close();
+                writer.flush();
+                br3.close();
+                is3.close();
+
+            } else {
+                System.out.println("  TMO : Gather Reduces");
+                p3.destroy();
+                sc.close();
+                bu.close();
+                fr.close();
                 writer.close();
                 return false;
             }
-
-            br.close();
-            is.close();
-            ber.close();
-            es.close();
-
-        } else {
-            System.out.println("TIMEOUT 'ls -1'");
-            p2.destroy();
-            sc.close();
-            writer.close();
-            return false;
+                
         }
 
         System.out.println("  DONE: Gather Reduces");
