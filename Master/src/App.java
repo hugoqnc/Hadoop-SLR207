@@ -325,6 +325,7 @@ public class App {
         for(String hostname : mapOfProcesses.keySet()){
             Process p = mapOfProcesses.get(hostname);
             boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
+
             if (timeoutStatus2){
                 if (verbose) System.out.println("  DONE : Reduce       ("+hostname+")");
                 reduceCount++;
