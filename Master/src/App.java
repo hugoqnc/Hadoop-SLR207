@@ -27,7 +27,7 @@ public class App {
     private static String workerMapTaskName = "Worker.jar";
     private static String outputAllReducedFileName = "all_reduced.txt";
     private static int secondsTimeout = 120;
-    private static int maxSimultaneousScpConnexions = 9;
+    private static int maxSimultaneousScpConnexions = 13;
     private static boolean verbose = true; //if true, shows DONE status for each individual distant computer
 
     private static String inputFileName;
@@ -44,6 +44,7 @@ public class App {
     private static int reduceCount = 0;
 
     public static void main(String[] args) throws Exception { //enter input file name as first argument (it should be placed in ../Resources/inputs/)
+        long globalStartTime = System.nanoTime();   
 
         inputFileName = args[0];
         mapOfProcesses = new HashMap<String,Process>();
@@ -54,7 +55,7 @@ public class App {
         DecimalFormat df = new DecimalFormat("#.#"); //for time measurement
         df.setRoundingMode(RoundingMode.CEILING);
 
-        System.out.println("START: Splitting      (local)");
+        System.out.println("\nSTART: Splitting      (local)");
 
         ProcessBuilder pb0 = new ProcessBuilder("rm","-rf",localSplitsPath);
         Process p0 = pb0.start();
@@ -108,6 +109,7 @@ public class App {
         }
 
         System.out.println("DONE : Splitting      (local)");
+        System.out.println("-----------------------------------");
 
 
         //connecting test
@@ -170,6 +172,7 @@ public class App {
             return;
         }
         System.out.println("DONE : Connection     (global)");
+        System.out.println("-----------------------------------");
 
 
         //mkdir split
@@ -197,6 +200,7 @@ public class App {
             return;
         }
         System.out.println("DONE : Mkdir          (global)");
+        System.out.println("-----------------------------------");
 
 
         
@@ -226,6 +230,7 @@ public class App {
         }
 
         System.out.println("DONE : Split Deploy   (global)");
+        System.out.println("-----------------------------------");
 
 
         //map computation
@@ -254,6 +259,7 @@ public class App {
         }
         long elapsedMapTime = System.nanoTime() - startMapTime;
         System.out.println("DONE : Map Compute    (global)      | "+ df.format(elapsedMapTime/1000000000.) + " s");
+        System.out.println("-----------------------------------");
 
 
 
@@ -282,6 +288,7 @@ public class App {
         }
 
         System.out.println("DONE : List Deploy    (global)");
+        System.out.println("-----------------------------------");
 
 
 
@@ -329,6 +336,7 @@ public class App {
         }
         long elapsedShuffleTime = System.nanoTime() - startShuffleTime;
         System.out.println("DONE : Shuffle        (global)      | "+ df.format(elapsedShuffleTime/1000000000.) + " s");
+        System.out.println("-----------------------------------");
 
 
         //reduce
@@ -358,6 +366,7 @@ public class App {
         }
         long elapsedReduceTime = System.nanoTime() - startReduceTime;
         System.out.println("DONE : Reduce         (global)      | "+ df.format(elapsedReduceTime/1000000000.) + " s");
+        System.out.println("-----------------------------------");
 
 
 
@@ -367,11 +376,15 @@ public class App {
 
         if (successfulGatherReduces){
             System.out.println("DONE : Gather Reduce  (global)");
+            System.out.println("-----------------------------------");
 
         } else {
             System.out.println("TMOUT: Gather Reduce  (global)");
             return;
         }
+
+        long globalElapsedTime = System.nanoTime() - globalStartTime;
+        System.out.println("\nTOTAL TIME : "+ df.format(globalElapsedTime/1000000000.) + " s\n");
 
     }
 
