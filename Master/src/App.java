@@ -27,6 +27,7 @@ public class App {
     private static String workerMapTaskName = "Worker.jar";
     private static String outputAllReducedFileName = "all_reduced.txt";
     private static int secondsTimeout = 120;
+    private static int maxSimultaneousScpConnexions = 9;
     private static boolean verbose = true; //if true, shows DONE status for each individual distant computer
 
     private static String inputFileName;
@@ -288,8 +289,24 @@ public class App {
         long startShuffleTime = System.nanoTime();   
         System.out.println("START: Shuffle        (global)");
 
+        int scpProcessCount = 0;
+        String hostnameToWaitFor = "";
         for (String hostname : mapOfProcesses.keySet()){
+            scpProcessCount++;
+            if(scpProcessCount%maxSimultaneousScpConnexions==1){
+                hostnameToWaitFor = hostname;
+            }
+
             computeShuffle(hostname, mapOfSplitNumbers.get(hostname));
+
+            if(scpProcessCount%maxSimultaneousScpConnexions==0){
+                Process p = mapOfProcesses.get(hostnameToWaitFor);
+                boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
+                if (!timeoutStatus2){
+                    System.out.println("  TMOUT: Shuffle      ("+hostname+")");
+                    p.destroy();
+                }
+            }
         }
 
         for(String hostname : mapOfProcesses.keySet()){
@@ -469,7 +486,7 @@ public class App {
             writer.flush();
             br3.close();
             is3.close();
-            
+
             boolean timeoutStatus3 = p3.waitFor(secondsTimeout, TimeUnit.SECONDS);
 
             if(timeoutStatus3){

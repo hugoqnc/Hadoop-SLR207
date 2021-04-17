@@ -256,7 +256,7 @@ public class App {
 
         List<Integer> range = IntStream.rangeClosed(0, numberOfDistantComputers-1).boxed().collect(Collectors.toList());
         Collections.shuffle(range); //shuffle indexes to reduce the number of simultaneous scp connections (that are limited to 10)
-        System.err.println(java.net.InetAddress.getLocalHost().getHostName()+" : "+range);
+        //System.err.println(java.net.InetAddress.getLocalHost().getHostName()+" : "+range);
 
         for (int folderID : range) {
             String hostname = Files.readAllLines(Paths.get(distantComputersList)).get(folderID);
