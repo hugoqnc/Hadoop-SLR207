@@ -210,9 +210,9 @@ public class App {
 
         for (String hostname : mapOfProcesses.keySet()){
             deploySplit(hostname, mapOfSplitNumbers.get(hostname));
-        }
+/*         }
 
-        for(String hostname : mapOfProcesses.keySet()){
+        for(String hostname : mapOfProcesses.keySet()){ */
             Process p = mapOfProcesses.get(hostname);
             boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
             if (timeoutStatus2){
