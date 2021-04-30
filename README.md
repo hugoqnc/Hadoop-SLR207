@@ -55,7 +55,6 @@ This will create the folder `Resources>outputs`in which you will find all output
 ## Problems encountered and Resolution
 
 ### Computing Distribution
-parler du séquentiel, puis des threads, puis de la liste
 
 The goal of this program is to be quicker than a sequential version, at least for large files. This means that we have to compute a maximum of tasks in parallel on all distant computers. According to Amdhal's law, the speedup will increase with the proportion of parallelized tasks and with the number of processors.
 
