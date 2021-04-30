@@ -1,7 +1,6 @@
 # Hadoop MapReduce *from scratch*
 
 ## Table of Contents
-- [Hadoop MapReduce *from scratch*](#hadoop-mapreduce-from-scratch)
   - [Table of Contents](#table-of-contents)
   - [Introduction](#introduction)
   - [Quick Setup](#quick-setup)
@@ -12,6 +11,8 @@
       - [Listing](#listing)
     - [SCP Limits](#scp-limits)
   - [Results](#results)
+    - [Data](#data)
+    - [Analysis](#analysis)
 
 ----
 
@@ -153,12 +154,48 @@ pathnames = f.list();
 This shows again that optimization is key when working with huge files.
 
 ### SCP Limits
-limit to 13 depsite all efforts
+
+Far from all the others, my biggest problem concerned SCP connection limits. I exeprienced this issue first when noticing that I consistently counted less occurences of words with my distributed algorithm compared to my sequential one. What was even more strange was that the number of occurences would vary between two executions of the distributed algorithm.
+
+After a lot of debugging, I figured out that this was a problem due to the SCP configuration of my school's computers. A machine can accept a maximum of 10 simultaneous SCP connections. But during the shuffle phase, each computer can send thousands of files to other machines, resulting in a lot of lost packets due to the SCP limit.
+
+I took several actions to resolve this issue as much as possible. First, instead of sending separately each packet to a distant machine, I now send once an entire folder containing all splits intented for a machine. So for N computers (N is 40-50 in our case), let S be the average number of splits possessed by the computer $C_i$ and that should be sent to the computer $C_j$ (S can typically be well over a thousand). With this first action, the number of SCP connections during the shuffle phase goes from $N\cdot N\cdot S$ to $N\cdot N$, which is a drastic reduction. This was however not enough to avoid losses of packets when N is over 10.
+
+I then modified my code so that each machine shuffles its list of machine, so that all machines does not try to send their files to the same recipient at the same time. It helped but it still wasn't enough.
+
+Finally, I added a security parameter `maxSimultaneousScpConnexions` in Master. This is a limit of the number concurrent machines performing their shuffle opertations, implemented this way:
+```java
+int scpProcessCount = 0;
+String hostnameToWaitFor = "";
+for (String hostname : mapOfProcesses.keySet()){
+    scpProcessCount++;
+    if(scpProcessCount%maxSimultaneousScpConnexions==1){
+        hostnameToWaitFor = hostname;
+    }
+
+    computeShuffle(hostname, mapOfSplitNumbers.get(hostname));
+
+    if(scpProcessCount%maxSimultaneousScpConnexions==0){
+        Process p = mapOfProcesses.get(hostnameToWaitFor);
+        boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
+        if (!timeoutStatus2){
+            System.out.println("  TMOUT: Shuffle      ("+hostname+")");
+            p.destroy();
+        }
+    }
+}
+```
+
+As said previously, if `maxSimultaneousScpConnexions==10`, we are sure to have no losses of packets. However, thanks to the shuffling of the list of machines, we can in practice set `maxSimultaneousScpConnexions` to 13, and have almost no losses of packets. This is the best compromise that I have found, but it has the huge drawbacks that **the shuffle phase is never paralellized on more than 13 machines**. This will have a terrible influence on the results, as we will see next.
+
+---
 
 ## Results
 
 I compared the sequential and distributed executions with several files. For this report, I have selected small (0.1 Mo), medium (20 Mo) and big (700 Mo) files. For testing purposes, you can find the big 700 Mo file [at this adress](https://drive.google.com/file/d/1xD6GktjOTK9JKctzVSX-KlKbIXASIEPV/view?usp=sharing).
 > I have used my own custom 700 Mo big file (and not the suggested one from [Commoncrawl](https://commoncrawl.s3.amazonaws.com/crawl-data/CC-MAIN-2017-13/segments/1490218189495.77/wet/CC-MAIN-20170322212949-00140-ip-10-233-31-227.ec2.internal.warc.wet.gz)) because it contained arabic characters that didn't work with my script because of the "right to left" writing syntax.
+
+### Data
 
 Here are the detailed results:
 
@@ -181,8 +218,12 @@ For each file size column, the first subcolumn coresspond to the sequential exec
 
 ![](Resources/photos/execution_division.png)
 
-We can first see on the first chart that with all my tests, the sequential algorithm was always faster than the distributed one. The distributed algorithm suffers especially from a very long shuffle phase. This is due to the fact that our shuffle phase is composed of thousands of sendings of small text files between dozens of computers. It is very dependant from the network, and the execution time increases considerably with the number packets.
+### Analysis
+
+We can first see on the first chart that with all my tests, the sequential algorithm was always faster than the distributed one. The distributed algorithm suffers especially from a very long shuffle phase. This is due to the fact that our shuffle phase is composed of thousands of sendings of small text files between dozens of computers. It is very dependant from the network, and the execution time increases considerably with the number packets. The length of the shuffle phase is also probably due to the `maxSimultaneousScpConnexions` set to 13. As explained previously, we are obliged to limit the parallelization of the shuffle phase to 13 computers even though we are using 40-50 machines.
 
 However, what can can particularly see with the second chart is that the difference of execution time between the sequential and the distributed algorithms considerably decreases with the file size. Hopefully, we could hope that with even bigger files, the distributed algorithm would be faster than the sequential one. But with these current results, I can't empirically demonstrate Amdhal's law.
 
-Moreover, the distributed algorithm is even more network-dependant than what we can see on the charts. The distributed execution from A to Z is much longer when taking into acount all the other phases, for example the split deployment. For the 700 Mo file, we have to imagine that we need to send 700 Mo of data to the distant computers, which can take really long depending of the network performance. 
+Moreover, the distributed algorithm is even more network-dependant than what we can see on the charts. The distributed execution from A to Z is much longer when taking into acount all the other phases, for example the split deployment. For the 700 Mo file, we have to imagine that we need to send 700 Mo of data to the distant computers, which can take really long depending of the network performance. As an example, the *real* distributed execution time for 700 Mo text file was 816.9 seconds, which is more than five times the time corresponding to Map-Shuffle-Reduce. This disadvantage must be put into perspective, as this type of performance-driven distributed algorithm would probably be run on a local supercomputer more often than on several machines linked through the internet.
+
+Finally, this project didn't allow me to observe Amdhal's law, but I have learned a lot on the devlopment of distributed algorithms. I particularly note that every optimization is very important when working with very big files, and that developing very large performance-oriented algorithms raises many questions that are not asked when developing smaller software.
