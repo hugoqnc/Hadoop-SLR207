@@ -32,7 +32,7 @@ This project is based upon a [practical work](https://remisharrock.fr/courses/si
 This project is divided into five folders:  `Clean`, `Deploy`, `Master`, `Worker` and `Resources`.
 To launch the project, you first need to add the names of the distant machines you want to accesse in a `machines.txt` file inside the `Resources` folder.
 
-Then, you have to add your input files in the folder `Resources>inputs`. These are text files where you want to count their number of words.
+Then, you have to make an `inputs` folder inside `Resources` and add your input files in this folder (`Resources>inputs`). These are text files where you want to count their number of words.
 
 You can then run the cleaning phase, which will create a folder in `\tmp` in each distant machine. If this folder already exists (because of a previous execution), it will delete it.
 ```zsh
@@ -48,7 +48,7 @@ Now, all your distant computers are correcty configured. From now on, you can la
 ```zsh
 cd Master; java -jar Master.jar input.txt; cd ..
 ```
-This will create the folder `Resources>outputs`in which you will find all outputs of Master execution, in a text file named `input-REDUCED.txt`. A Master execution will also create a folder `Resources>splits`which will contain splits of the text file `input.txt`, however this folder will be replaced by new splits at each execution of Master.
+This will create the folder `Resources>outputs` in which you will find all outputs of Master execution, in a text file named `input-REDUCED.txt`. A Master execution will also create a folder `Resources>splits` which will contain splits of the text file `input.txt`, however this folder will be replaced by new splits at each execution of Master.
 
 ---
 
@@ -141,6 +141,7 @@ if (timeoutStatus){
     while ((lineReduceFileName = br.readLine()) != null){
       //...perform reduce actions...
     }
+}
 ```
 This method did work well on small and medium files. However, there was a threshold on which big this code wouldn't work properly on big files. I ultimetely figured out that it was due to a limit on the buffer size. I realised that this solution wasn't very elegant, and that there was a way simpler and better solution already integrated in Java:
 
@@ -176,12 +177,13 @@ for (String hostname : mapOfProcesses.keySet()){
 
     if(scpProcessCount%maxSimultaneousScpConnexions==0){
         Process p = mapOfProcesses.get(hostnameToWaitFor);
-        boolean timeoutStatus2 = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
-        if (!timeoutStatus2){
-            System.out.println("  TMOUT: Shuffle      ("+hostname+")");
-            p.destroy();
-        }
+        boolean timeoutStatus = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
     }
+}
+
+for(String hostname : mapOfProcesses.keySet()){
+    Process p = mapOfProcesses.get(hostname);
+    boolean timeoutStatus = p.waitFor(secondsTimeout, TimeUnit.SECONDS);
 }
 ```
 
@@ -214,6 +216,7 @@ For each file size column, the first subcolumn coresspond to the sequential exec
 <br>
 
 ![](Resources/photos/execution_time.png)
+For each file size, the blue bar represents the sequential execution, compared to the green-gray-orange bar which represents the distributed execution.
 
 ![](Resources/photos/execution_division.png)
 
